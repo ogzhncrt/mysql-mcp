@@ -1,0 +1,26 @@
+{
+  "defaults": {
+    "connection": "default",
+    "queryLimit": 100
+  },
+  "connections": [
+    {
+      "connectionName": "default",
+      "host": "127.0.0.1",
+      "port": 3306,
+      "user": "root",
+      "password": "your-password",
+      "database": "myapp",
+      "readOnly": false
+    },
+    {
+      "connectionName": "production",
+      "host": "db.example.com",
+      "port": 3306,
+      "user": "readonly_user",
+      "password": "your-password",
+      "database": "myapp",
+      "readOnly": true
+    }
+  ]
+}

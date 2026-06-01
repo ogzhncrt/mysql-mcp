@@ -1,0 +1,65 @@
+import { z } from "zod";
+
+const connectionNameRegex = /^[a-zA-Z0-9_-]+$/;
+
+export const ConnectionConfigSchema = z.object({
+  connectionName: z
+    .string()
+    .min(1, "connectionName must not be empty")
+    .regex(
+      connectionNameRegex,
+      "connectionName may only contain letters, digits, '_' and '-'",
+    ),
+  host: z.string().min(1, "host must not be empty"),
+  port: z
+    .number()
+    .int("port must be an integer")
+    .min(1, "port must be >= 1")
+    .max(65535, "port must be <= 65535")
+    .optional(),
+  user: z.string().min(1, "user must not be empty"),
+  password: z.string(),
+  database: z.string().min(1, "database must not be empty"),
+  readOnly: z.boolean().optional(),
+  connectionLimit: z
+    .number()
+    .int("connectionLimit must be an integer")
+    .min(1, "connectionLimit must be >= 1")
+    .optional(),
+});
+
+export const AppConfigSchema = z
+  .object({
+    defaults: z
+      .object({
+        connection: z.string().min(1).optional(),
+        queryLimit: z.number().int().min(1).optional(),
+      })
+      .optional(),
+    connections: z
+      .array(ConnectionConfigSchema)
+      .min(1, "at least one connection is required"),
+  })
+  .superRefine((cfg, ctx) => {
+    const names = new Set<string>();
+    for (const [i, conn] of cfg.connections.entries()) {
+      if (names.has(conn.connectionName)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["connections", i, "connectionName"],
+          message: `duplicate connectionName "${conn.connectionName}"`,
+        });
+      }
+      names.add(conn.connectionName);
+    }
+
+    if (cfg.defaults?.connection && !names.has(cfg.defaults.connection)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["defaults", "connection"],
+        message: `defaults.connection "${cfg.defaults.connection}" does not match any configured connection`,
+      });
+    }
+  });
+
+export type ParsedAppConfig = z.infer<typeof AppConfigSchema>;

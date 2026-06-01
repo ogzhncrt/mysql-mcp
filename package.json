@@ -1,0 +1,45 @@
+{
+  "name": "mcp-server-mysql",
+  "version": "1.0.0",
+  "description": "MCP server for MySQL — connect Cursor to your databases via config file or env vars",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "mcp-server-mysql": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "config.example.json"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "mysql",
+    "cursor",
+    "modelcontextprotocol",
+    "database"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "mysql2": "^3.11.5",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "tsx": "^4.16.1",
+    "typescript": "^5.5.3",
+    "vitest": "^2.0.0"
+  }
+}

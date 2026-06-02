@@ -6,6 +6,7 @@ import {
   assertCanExecute,
   isSelectQuery,
   isWriteQuery,
+  stripCommentsAndStrings,
 } from "../src/db/query-guard.js";
 
 const writeable: ConnectionConfig = {
@@ -46,6 +47,54 @@ describe("isWriteQuery", () => {
   it("does not match prefixes that are part of identifiers", () => {
     expect(isWriteQuery("SELECTFOO * FROM x")).toBe(false);
     expect(isWriteQuery("INSERTED ...")).toBe(false);
+  });
+
+  it("catches CTE-disguised writes (regression: pre-1.1 bypass)", () => {
+    expect(
+      isWriteQuery("WITH foo AS (SELECT 1) DELETE FROM users WHERE id IN foo"),
+    ).toBe(true);
+    expect(
+      isWriteQuery(
+        "WITH x AS (SELECT 1)\nINSERT INTO logs (id) SELECT id FROM x",
+      ),
+    ).toBe(true);
+    expect(
+      isWriteQuery(
+        "WITH RECURSIVE t AS (SELECT 1) UPDATE users SET name='x'",
+      ),
+    ).toBe(true);
+  });
+
+  it("catches CALL of stored procedures", () => {
+    expect(isWriteQuery("CALL sp_delete_everything()")).toBe(true);
+    expect(isWriteQuery("  call my_proc(1, 2)")).toBe(true);
+  });
+
+  it("ignores write keywords inside string literals", () => {
+    expect(isWriteQuery("SELECT 'DELETE FROM users' AS note")).toBe(false);
+    expect(isWriteQuery(`SELECT "INSERT INTO x" AS s`)).toBe(false);
+    expect(isWriteQuery("SELECT 'it''s safe DELETE' FROM dual")).toBe(false);
+  });
+
+  it("ignores write keywords inside comments", () => {
+    expect(isWriteQuery("SELECT 1 -- DELETE FROM users")).toBe(false);
+    expect(isWriteQuery("SELECT 1 /* DROP TABLE x */ FROM dual")).toBe(false);
+    expect(isWriteQuery("SELECT 1\n# UPDATE x SET y=1")).toBe(false);
+  });
+});
+
+describe("stripCommentsAndStrings", () => {
+  it("strips block, line, and # comments", () => {
+    expect(
+      stripCommentsAndStrings("SELECT 1 /* DROP */ -- DELETE\nFROM t # CALL")
+        .replace(/\s+/g, " ")
+        .trim(),
+    ).toBe("SELECT 1 FROM t");
+  });
+
+  it("strips single- and double-quoted strings", () => {
+    expect(stripCommentsAndStrings("'DELETE'")).not.toMatch(/DELETE/);
+    expect(stripCommentsAndStrings('"DROP TABLE"')).not.toMatch(/DROP/);
   });
 });
 

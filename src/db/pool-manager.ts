@@ -1,4 +1,4 @@
-import mysql, { type Pool } from "mysql2/promise";
+import mysql, { type Pool, type PoolOptions } from "mysql2/promise";
 
 import type { ConnectionConfig } from "../config/types.js";
 import { DEFAULT_CONNECTION_LIMIT, DEFAULT_PORT } from "../config/types.js";
@@ -34,7 +34,7 @@ export class PoolManager {
     if (existing) return existing;
 
     const config = this.getConfig(name);
-    const pool = mysql.createPool({
+    const options: PoolOptions = {
       host: config.host,
       port: config.port ?? DEFAULT_PORT,
       user: config.user,
@@ -45,7 +45,11 @@ export class PoolManager {
       queueLimit: 0,
       enableKeepAlive: true,
       keepAliveInitialDelay: 0,
-    });
+    };
+    if (config.ssl !== undefined) {
+      options.ssl = config.ssl as PoolOptions["ssl"];
+    }
+    const pool = mysql.createPool(options);
     this.pools.set(name, pool);
     return pool;
   }

@@ -19,9 +19,9 @@ import {
   listToolDescriptors,
   type ToolContext,
 } from "./tools/registry.js";
+import { getVersion } from "./version.js";
 
 const SERVER_NAME = "mcp-server-mysql";
-const SERVER_VERSION = "1.0.0";
 
 export class DatabaseMcpServer {
   private readonly server: Server;
@@ -31,7 +31,7 @@ export class DatabaseMcpServer {
   constructor(config: AppConfig) {
     this.ctx = createToolContext(config);
     this.server = new Server(
-      { name: SERVER_NAME, version: SERVER_VERSION },
+      { name: SERVER_NAME, version: getVersion() },
       { capabilities: { tools: {}, resources: {} } },
     );
 

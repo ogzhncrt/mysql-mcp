@@ -1,5 +1,6 @@
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
 
+import { MAX_QUERY_LIMIT } from "../config/types.js";
 import {
   assertCanExecute,
   isSelectQuery,
@@ -26,21 +27,41 @@ export const executeQueryTool: ToolDefinition = {
       description:
         `Execute a SQL query against a configured MySQL connection. ` +
         `Configured connections: ${connectionSummary(ctx)}. ` +
-        `Read-only connections reject INSERT/UPDATE/DELETE/DDL. ` +
-        `Bare SELECTs are auto-LIMITed to the requested limit (default ${ctx.defaultQueryLimit}).`,
+        `Read-only connections reject INSERT/UPDATE/DELETE/DDL/CALL ` +
+        `(detection is comment- and string-literal-aware, so CTE bypasses ` +
+        `like "WITH x AS (...) DELETE FROM t" are blocked). ` +
+        `Bare SELECTs are auto-LIMITed (default ${ctx.defaultQueryLimit}, ` +
+        `hard max ${MAX_QUERY_LIMIT}). ` +
+        `Pass "params" to use parameterized queries with ? placeholders; ` +
+        `this is safer than string-interpolating values into "query".`,
       inputSchema: {
         type: "object",
         properties: {
           query: {
             type: "string",
-            description: "Raw SQL to execute.",
+            description: "SQL statement. Use ? placeholders with `params`.",
+          },
+          params: {
+            type: "array",
+            description:
+              "Optional values for ? placeholders in `query`. " +
+              "Each value is escaped by the driver, preventing SQL injection.",
+            items: {},
           },
           connection: connectionEnum(ctx),
           limit: {
             type: "number",
             description:
-              `Row cap appended to bare SELECT queries (default ${ctx.defaultQueryLimit}).`,
+              `Row cap appended to bare SELECT queries (default ${ctx.defaultQueryLimit}, max ${MAX_QUERY_LIMIT}).`,
             default: ctx.defaultQueryLimit,
+            minimum: 1,
+            maximum: MAX_QUERY_LIMIT,
+          },
+          timeoutMs: {
+            type: "number",
+            description:
+              `Per-query timeout in milliseconds. Default ${ctx.defaultQueryTimeoutMs}.`,
+            default: ctx.defaultQueryTimeoutMs,
             minimum: 1,
           },
         },
@@ -56,19 +77,35 @@ export const executeQueryTool: ToolDefinition = {
       throw new Error('"query" is required and must be a non-empty string');
     }
 
+    const params = resolveParams(args.params);
     const connectionName = resolveConnectionName(ctx, args.connection);
     const connection = ctx.pools.getConfig(connectionName);
     const limit = resolveLimit(args.limit, ctx.defaultQueryLimit);
+    const timeoutMs = resolveTimeout(
+      args.timeoutMs,
+      connection.queryTimeoutMs ?? ctx.defaultQueryTimeoutMs,
+    );
 
     assertCanExecute(connection, query);
 
     const finalQuery = maybeAppendLimit(query, limit);
     const pool = ctx.pools.getPool(connectionName);
-    const [result] = await pool.query(finalQuery);
+
+    const [result] = params
+      ? await pool.query({ sql: finalQuery, timeout: timeoutMs, values: params })
+      : await pool.query({ sql: finalQuery, timeout: timeoutMs });
 
     return buildResponse(connectionName, query, result);
   },
 };
+
+function resolveParams(value: unknown): unknown[] | null {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value)) {
+    throw new Error('"params" must be an array when provided');
+  }
+  return value;
+}
 
 function resolveLimit(value: unknown, fallback: number): number {
   if (value === undefined || value === null) return fallback;
@@ -77,6 +114,20 @@ function resolveLimit(value: unknown, fallback: number): number {
   }
   if (!Number.isInteger(value) || value < 1) {
     throw new Error('"limit" must be a positive integer');
+  }
+  if (value > MAX_QUERY_LIMIT) {
+    throw new Error(`"limit" must be <= ${MAX_QUERY_LIMIT}`);
+  }
+  return value;
+}
+
+function resolveTimeout(value: unknown, fallback: number): number {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error('"timeoutMs" must be a finite number');
+  }
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error('"timeoutMs" must be a positive integer');
   }
   return value;
 }

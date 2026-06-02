@@ -1,17 +1,25 @@
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+
 import type { AppConfig } from "../config/types.js";
-import { DEFAULT_CONNECTION_NAME, DEFAULT_QUERY_LIMIT } from "../config/types.js";
+import {
+  DEFAULT_CONNECTION_NAME,
+  DEFAULT_QUERY_LIMIT,
+  DEFAULT_QUERY_TIMEOUT_MS,
+} from "../config/types.js";
 import { PoolManager } from "../db/pool-manager.js";
 
 import { executeQueryTool } from "./execute-query.js";
 import { listTablesTool } from "./list-tables.js";
 import { describeTableTool } from "./describe-table.js";
 import { listDatabasesTool } from "./list-databases.js";
+import { explainQueryTool } from "./explain-query.js";
 
 export interface ToolContext {
   config: AppConfig;
   pools: PoolManager;
   defaultConnection: string;
   defaultQueryLimit: number;
+  defaultQueryTimeoutMs: number;
 }
 
 export interface ToolDefinition {
@@ -27,14 +35,11 @@ export interface ToolDefinition {
   ): Promise<unknown>;
 }
 
-export interface CallToolResponse {
-  content: Array<{ type: "text"; text: string }>;
-  isError?: boolean;
-  [key: string]: unknown;
-}
+export type CallToolResponse = CallToolResult;
 
 const TOOLS: ToolDefinition[] = [
   executeQueryTool,
+  explainQueryTool,
   listTablesTool,
   describeTableTool,
   listDatabasesTool,
@@ -48,6 +53,8 @@ export function createToolContext(config: AppConfig): ToolContext {
       config.defaults?.connection ?? DEFAULT_CONNECTION_NAME,
     defaultQueryLimit:
       config.defaults?.queryLimit ?? DEFAULT_QUERY_LIMIT,
+    defaultQueryTimeoutMs:
+      config.defaults?.queryTimeoutMs ?? DEFAULT_QUERY_TIMEOUT_MS,
   };
 }
 

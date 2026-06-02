@@ -1,7 +1,8 @@
 {
   "defaults": {
     "connection": "default",
-    "queryLimit": 100
+    "queryLimit": 100,
+    "queryTimeoutMs": 30000
   },
   "connections": [
     {
@@ -20,7 +21,9 @@
       "user": "readonly_user",
       "password": "your-password",
       "database": "myapp",
-      "readOnly": true
+      "readOnly": true,
+      "ssl": "Amazon RDS",
+      "queryTimeoutMs": 15000
     }
   ]
 }

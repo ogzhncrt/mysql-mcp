@@ -2,6 +2,23 @@ import { z } from "zod";
 
 const connectionNameRegex = /^[a-zA-Z0-9_-]+$/;
 
+const SslOptionsSchema = z.object({
+  rejectUnauthorized: z.boolean().optional(),
+  ca: z.string().optional(),
+  cert: z.string().optional(),
+  key: z.string().optional(),
+  minVersion: z.string().optional(),
+  servername: z.string().optional(),
+});
+
+const SslPresetSchema = z.literal("Amazon RDS");
+
+const SslConfigSchema = z.union([
+  z.boolean(),
+  SslPresetSchema,
+  SslOptionsSchema,
+]);
+
 export const ConnectionConfigSchema = z.object({
   connectionName: z
     .string()
@@ -26,6 +43,12 @@ export const ConnectionConfigSchema = z.object({
     .int("connectionLimit must be an integer")
     .min(1, "connectionLimit must be >= 1")
     .optional(),
+  queryTimeoutMs: z
+    .number()
+    .int("queryTimeoutMs must be an integer")
+    .min(1, "queryTimeoutMs must be >= 1")
+    .optional(),
+  ssl: SslConfigSchema.optional(),
 });
 
 export const AppConfigSchema = z
@@ -34,6 +57,7 @@ export const AppConfigSchema = z
       .object({
         connection: z.string().min(1).optional(),
         queryLimit: z.number().int().min(1).optional(),
+        queryTimeoutMs: z.number().int().min(1).optional(),
       })
       .optional(),
     connections: z

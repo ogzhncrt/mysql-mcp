@@ -62,13 +62,29 @@ If you only need one connection, skip the config file entirely:
 
 | Tool             | What it does                                                             |
 | ---------------- | ------------------------------------------------------------------------ |
-| `execute_query`  | Run any SQL. Bare `SELECT`s get an auto `LIMIT`. Read-only connections reject `INSERT`/`UPDATE`/`DELETE`/DDL. |
+| `execute_query`  | Run any SQL. Supports `params` for `?` placeholders. Bare `SELECT`s get an auto `LIMIT` (max 10,000). Read-only connections reject `INSERT`/`UPDATE`/`DELETE`/DDL/`CALL`, including CTE-disguised writes like `WITH x AS (...) DELETE FROM t`. |
+| `explain_query`  | `EXPLAIN` a statement without executing it. Supports `format: TRADITIONAL\|JSON\|TREE` and `params`. Safe on read-only connections. |
 | `list_tables`    | `SHOW TABLES` on the chosen connection.                                  |
 | `describe_table` | `DESCRIBE <table>` + `SHOW INDEXES FROM <table>`. Table names must match `^[a-zA-Z0-9_]+$`. |
 | `list_databases` | Lists configured connections (host, database, port, read-only flag). Never includes passwords. |
 
 Each tool accepts an optional `connection` argument. If omitted, the default
-from `defaults.connection` (or the literal `"default"`) is used.
+from `defaults.connection` (or the literal `"default"`) is used. Every tool
+that runs SQL also accepts an optional `timeoutMs` (defaults to
+`defaults.queryTimeoutMs`, then `30000`).
+
+### Parameterized queries
+
+```jsonc
+// execute_query
+{
+  "query": "SELECT id, email FROM users WHERE org_id = ? AND active = ?",
+  "params": [42, true]
+}
+```
+
+Driver-side escaping prevents SQL injection. Always prefer this over
+interpolating values into the `query` string.
 
 ## Resources
 
@@ -84,7 +100,8 @@ For each configured connection the server exposes a resource:
 {
   "defaults": {
     "connection": "default",
-    "queryLimit": 100
+    "queryLimit": 100,
+    "queryTimeoutMs": 30000
   },
   "connections": [
     {
@@ -104,7 +121,9 @@ For each configured connection the server exposes a resource:
       "user": "readonly_user",
       "password": "prod-secret",
       "database": "myapp",
-      "readOnly": true
+      "readOnly": true,
+      "ssl": "Amazon RDS",
+      "queryTimeoutMs": 15000
     }
   ]
 }
@@ -112,16 +131,19 @@ For each configured connection the server exposes a resource:
 
 | Field                          | Required | Default      | Notes                                              |
 | ------------------------------ | -------- | ------------ | -------------------------------------------------- |
-| `defaults.connection`          | no       | `"default"`  | Must match a configured `connectionName`.          |
-| `defaults.queryLimit`          | no       | `100`        | Used when a bare `SELECT` has no `LIMIT`.          |
-| `connections[].connectionName` | yes      | —            | Unique, `^[a-zA-Z0-9_-]+$`.                        |
-| `connections[].host`           | yes      | —            |                                                    |
-| `connections[].port`           | no       | `3306`       | Integer 1–65535.                                   |
-| `connections[].user`           | yes      | —            |                                                    |
-| `connections[].password`       | yes      | —            |                                                    |
-| `connections[].database`       | yes      | —            |                                                    |
-| `connections[].readOnly`       | no       | `false`      | When `true`, write statements throw.               |
-| `connections[].connectionLimit`| no       | `5`          | Max connections per pool.                          |
+| `defaults.connection`           | no       | `"default"`  | Must match a configured `connectionName`.          |
+| `defaults.queryLimit`           | no       | `100`        | Used when a bare `SELECT` has no `LIMIT`. Hard max `10000`. |
+| `defaults.queryTimeoutMs`       | no       | `30000`      | Per-query timeout in milliseconds.                 |
+| `connections[].connectionName`  | yes      | —            | Unique, `^[a-zA-Z0-9_-]+$`.                        |
+| `connections[].host`            | yes      | —            |                                                    |
+| `connections[].port`            | no       | `3306`       | Integer 1–65535.                                   |
+| `connections[].user`            | yes      | —            |                                                    |
+| `connections[].password`        | yes      | —            |                                                    |
+| `connections[].database`        | yes      | —            |                                                    |
+| `connections[].readOnly`        | no       | `false`      | When `true`, write statements (incl. CTE writes and `CALL`) throw. |
+| `connections[].connectionLimit` | no       | `5`          | Max connections per pool.                          |
+| `connections[].queryTimeoutMs`  | no       | inherits `defaults.queryTimeoutMs` | Per-connection timeout override. |
+| `connections[].ssl`             | no       | unset        | `true` / `false` / `"Amazon RDS"` / mysql2 SSL object (`{ ca, cert, key, rejectUnauthorized, ... }`). |
 
 ### Config resolution order
 
@@ -144,6 +166,8 @@ The first source that exists wins:
 | `MYSQL_PORT`            | no       | `3306`       |
 | `MYSQL_CONNECTION_NAME` | no       | `default`    |
 | `MYSQL_READ_ONLY`       | no       | `false` (true when value is `true` or `1`) |
+| `MYSQL_SSL`             | no       | unset (`true` / `false` / `amazon-rds`) |
+| `MYSQL_QUERY_TIMEOUT_MS`| no       | `30000`      |
 
 ## `mcp-server-mysql init`
 

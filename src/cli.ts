@@ -4,6 +4,8 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 
+import { getVersion } from "./version.js";
+
 export interface ParsedCli {
   configPath?: string;
 }
@@ -14,11 +16,13 @@ Usage:
   mcp-server-mysql [--config <path>]
   mcp-server-mysql init [--output <path>]
   mcp-server-mysql --help
+  mcp-server-mysql --version
 
 Options:
   --config <path>   Path to JSON config file. Overrides MCP_MYSQL_CONFIG and
                     auto-discovery in ./ and ~/.config/mcp-server-mysql/.
   --help            Print this message and exit.
+  --version         Print the package version and exit.
 
 Subcommands:
   init              Write a starter config file. Default output:
@@ -27,9 +31,11 @@ Subcommands:
 
 Environment (used only when no config file is found):
   MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE  (required)
-  MYSQL_PORT             (optional, default 3306)
-  MYSQL_CONNECTION_NAME  (optional, default "default")
-  MYSQL_READ_ONLY        (optional, "true" or "1" enables read-only)
+  MYSQL_PORT              (optional, default 3306)
+  MYSQL_CONNECTION_NAME   (optional, default "default")
+  MYSQL_READ_ONLY         (optional, "true" or "1" enables read-only)
+  MYSQL_SSL               (optional, "true" / "false" / "amazon-rds")
+  MYSQL_QUERY_TIMEOUT_MS  (optional, positive integer)
 `;
 
 export function printUsage(): void {
@@ -39,6 +45,10 @@ export function printUsage(): void {
 export function parseCli(argv: string[] = process.argv.slice(2)): ParsedCli {
   if (argv.includes("--help") || argv.includes("-h")) {
     printUsage();
+    process.exit(0);
+  }
+  if (argv.includes("--version") || argv.includes("-v")) {
+    process.stdout.write(`${getVersion()}\n`);
     process.exit(0);
   }
 

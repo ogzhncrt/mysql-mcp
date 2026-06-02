@@ -135,6 +135,63 @@ describe("loadConfig", () => {
     ).toThrowError(/duplicate connectionName/);
   });
 
+  it("accepts ssl as boolean, preset, or object", () => {
+    const { dir, path } = writeTempConfig({
+      defaults: { connection: "rds", queryTimeoutMs: 60000 },
+      connections: [
+        {
+          connectionName: "rds",
+          host: "db.example.com",
+          user: "app",
+          password: "real-secret-rds",
+          database: "myapp",
+          ssl: "Amazon RDS",
+          queryTimeoutMs: 45000,
+        },
+        {
+          connectionName: "tls",
+          host: "db2.example.com",
+          user: "app",
+          password: "real-secret-tls",
+          database: "myapp",
+          ssl: { rejectUnauthorized: false },
+        },
+        {
+          connectionName: "plain",
+          host: "127.0.0.1",
+          user: "app",
+          password: "real-secret-plain",
+          database: "myapp",
+          ssl: true,
+        },
+      ],
+    });
+    created.push(dir);
+
+    const { config } = loadConfig({ cliConfigPath: path, env: EMPTY_ENV });
+    expect(config.connections[0].ssl).toBe("Amazon RDS");
+    expect(config.connections[1].ssl).toEqual({ rejectUnauthorized: false });
+    expect(config.connections[2].ssl).toBe(true);
+    expect(config.connections[0].queryTimeoutMs).toBe(45000);
+    expect(config.defaults?.queryTimeoutMs).toBe(60000);
+  });
+
+  it("parses MYSQL_SSL and MYSQL_QUERY_TIMEOUT_MS env vars", () => {
+    const { config } = loadConfig({
+      env: {
+        MYSQL_HOST: "127.0.0.1",
+        MYSQL_USER: "root",
+        MYSQL_PASSWORD: "secret",
+        MYSQL_DATABASE: "myapp",
+        MYSQL_SSL: "amazon-rds",
+        MYSQL_QUERY_TIMEOUT_MS: "5000",
+      },
+      cwd: "/nonexistent-cwd",
+    });
+    expect(config.connections[0].ssl).toBe("Amazon RDS");
+    expect(config.connections[0].queryTimeoutMs).toBe(5000);
+  });
+
   it("rejects invalid port", () => {
     const { dir, path } = writeTempConfig({
       connections: [

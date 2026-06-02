@@ -1,15 +1,19 @@
 # mcp-server-mysql
 
+[![npm](https://img.shields.io/npm/v/@ogzhncrt/mcp-server-mysql.svg)](https://www.npmjs.com/package/@ogzhncrt/mcp-server-mysql)
+
 A Model Context Protocol (MCP) server for MySQL. Lets Cursor and other MCP
 clients list tables, describe schema, and run SQL against any MySQL database
 you configure — over stdio, with read-only protection for production
 connections.
 
+Published as **`@ogzhncrt/mcp-server-mysql`** on npm.
+
 ## Quick start (config file)
 
 1. Generate a starter config:
    ```bash
-   npx -y mcp-server-mysql init
+   npx -y @ogzhncrt/mcp-server-mysql init
    # writes ~/.config/mcp-server-mysql/config.json
    ```
 2. Replace the placeholder credentials in that file. Any field still
@@ -24,7 +28,7 @@ connections.
          "command": "npx",
          "args": [
            "-y",
-           "mcp-server-mysql",
+           "@ogzhncrt/mcp-server-mysql",
            "--config",
            "/absolute/path/to/config.json"
          ]
@@ -44,7 +48,7 @@ If you only need one connection, skip the config file entirely:
   "mcpServers": {
     "mysql": {
       "command": "npx",
-      "args": ["-y", "mcp-server-mysql"],
+      "args": ["-y", "@ogzhncrt/mcp-server-mysql"],
       "env": {
         "MYSQL_HOST": "127.0.0.1",
         "MYSQL_PORT": "3306",
@@ -172,7 +176,7 @@ The first source that exists wins:
 ## `mcp-server-mysql init`
 
 ```
-mcp-server-mysql init [--output <path>]
+npx -y @ogzhncrt/mcp-server-mysql init [--output <path>]
 ```
 
 Copies the bundled `config.example.json` to the target path. Default target
@@ -203,15 +207,16 @@ npm run build
 
 ## Publishing
 
-For maintainers:
+For maintainers only:
 
 ```bash
 npm run build
 npm test
-npm publish --access public
+npm publish        # access defaults to public via publishConfig
 ```
 
-The `prepublishOnly` script runs `npm run build` automatically.
+The `prepublishOnly` script runs `npm run build` automatically. Bump the
+version in `package.json` and add a `CHANGELOG.md` entry before publishing.
 
 ## License
 

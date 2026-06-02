@@ -1,7 +1,19 @@
 {
-  "name": "mcp-server-mysql",
+  "name": "@ogzhncrt/mcp-server-mysql",
   "version": "1.1.0",
-  "description": "MCP server for MySQL — connect Cursor to your databases via config file or env vars",
+  "description": "MCP server for MySQL — connect Cursor (and other MCP clients) to your databases via config file or env vars",
+  "author": "ogzhncrt <ogzhncrt@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ogzhncrt/mysql-mcp.git"
+  },
+  "homepage": "https://github.com/ogzhncrt/mysql-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/ogzhncrt/mysql-mcp/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -11,6 +23,7 @@
     "dist",
     "README.md",
     "LICENSE",
+    "CHANGELOG.md",
     "config.example.json"
   ],
   "scripts": {

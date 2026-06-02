@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.1.0] - 2026-06-02
 
+> **First npm release.** Published as `@ogzhncrt/mcp-server-mysql`. The
+> unscoped name `mcp-server-mysql` is owned by an unrelated project on
+> the registry; using a scoped name avoids confusion and guarantees we
+> control the namespace going forward.
+
 ### Added
 
 - **SSL/TLS support.** New `connections[].ssl` field accepts `true`,

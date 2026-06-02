@@ -7,10 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.1.0] - 2026-06-02
 
-> **First npm release.** Published as `@ogzhncrt/mcp-server-mysql`. The
-> unscoped name `mcp-server-mysql` is owned by an unrelated project on
-> the registry; using a scoped name avoids confusion and guarantees we
-> control the namespace going forward.
+> **First npm release.** Published as `mysql-mcp-toolkit`. The names
+> `mcp-server-mysql`, `mysql-mcp`, and `mysql-mcp-server` are all
+> owned by unrelated projects on the registry; `mysql-mcp-toolkit`
+> was the next-best-available name that's still discoverable for the
+> obvious search terms.
 
 ### Added
 

@@ -1,19 +1,19 @@
 # mcp-server-mysql
 
-[![npm](https://img.shields.io/npm/v/@ogzhncrt/mcp-server-mysql.svg)](https://www.npmjs.com/package/@ogzhncrt/mcp-server-mysql)
+[![npm](https://img.shields.io/npm/v/mysql-mcp-toolkit.svg)](https://www.npmjs.com/package/mysql-mcp-toolkit)
 
 A Model Context Protocol (MCP) server for MySQL. Lets Cursor and other MCP
 clients list tables, describe schema, and run SQL against any MySQL database
 you configure — over stdio, with read-only protection for production
 connections.
 
-Published as **`@ogzhncrt/mcp-server-mysql`** on npm.
+Published as **`mysql-mcp-toolkit`** on npm.
 
 ## Quick start (config file)
 
 1. Generate a starter config:
    ```bash
-   npx -y @ogzhncrt/mcp-server-mysql init
+   npx -y mysql-mcp-toolkit init
    # writes ~/.config/mcp-server-mysql/config.json
    ```
 2. Replace the placeholder credentials in that file. Any field still
@@ -28,7 +28,7 @@ Published as **`@ogzhncrt/mcp-server-mysql`** on npm.
          "command": "npx",
          "args": [
            "-y",
-           "@ogzhncrt/mcp-server-mysql",
+           "mysql-mcp-toolkit",
            "--config",
            "/absolute/path/to/config.json"
          ]
@@ -48,7 +48,7 @@ If you only need one connection, skip the config file entirely:
   "mcpServers": {
     "mysql": {
       "command": "npx",
-      "args": ["-y", "@ogzhncrt/mcp-server-mysql"],
+      "args": ["-y", "mysql-mcp-toolkit"],
       "env": {
         "MYSQL_HOST": "127.0.0.1",
         "MYSQL_PORT": "3306",
@@ -176,7 +176,7 @@ The first source that exists wins:
 ## `mcp-server-mysql init`
 
 ```
-npx -y @ogzhncrt/mcp-server-mysql init [--output <path>]
+npx -y mysql-mcp-toolkit init [--output <path>]
 ```
 
 Copies the bundled `config.example.json` to the target path. Default target

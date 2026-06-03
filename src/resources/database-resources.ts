@@ -1,6 +1,6 @@
 import { DEFAULT_PORT } from "../config/types.js";
-import type { ToolContext } from "../tools/registry.js";
-import { jsonStringify } from "../tools/registry.js";
+import type { ToolContext } from "../lib/context.js";
+import { jsonStringify } from "../lib/json.js";
 
 export interface ResourceDescriptor {
   uri: string;

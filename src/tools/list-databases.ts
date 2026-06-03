@@ -1,9 +1,7 @@
 import { DEFAULT_PORT } from "../config/types.js";
 
-import {
-  connectionSummary,
-  type ToolDefinition,
-} from "./registry.js";
+import { connectionSummary } from "../lib/connections.js";
+import type { ToolDefinition } from "../lib/context.js";
 
 export const listDatabasesTool: ToolDefinition = {
   name: "list_databases",
@@ -31,6 +29,7 @@ export const listDatabasesTool: ToolDefinition = {
         database: conn.database,
         port: conn.port ?? DEFAULT_PORT,
         readOnly: conn.readOnly === true,
+        ssl: conn.ssl !== undefined && conn.ssl !== false,
       };
     });
 

@@ -5,6 +5,69 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-06-03
+
+### Fixed
+
+- **Auto-LIMIT no longer fooled by string literals or comments.** Previously
+  `SELECT * FROM t WHERE note = 'add LIMIT here'` skipped the auto-LIMIT
+  because the naive `\bLIMIT\b` regex matched inside the string. Now the
+  comment/string-stripping pass from the write-guard is reused for LIMIT
+  detection, so the auto-LIMIT applies whenever it should.
+- **`isSelectQuery` is now comment-aware.** A query like
+  `/* hint */ SELECT * FROM t` previously failed the SELECT check, so it
+  got no auto-LIMIT and no `MAX_EXECUTION_TIME` hint. Fixed by stripping
+  leading comments before the prefix test.
+- **`timeoutMs` actually cancels SELECTs server-side now.** v1.1's
+  `timeoutMs` only closed the client socket — the query kept running on
+  the MySQL server, holding locks and consuming CPU. v1.2 injects a
+  `/*+ MAX_EXECUTION_TIME(N) */` optimizer hint into SELECT queries so
+  MySQL 5.7.4+ cancels them server-side. Non-SELECT statements still fall
+  back to client-side socket close (documented behavior — MySQL's
+  `MAX_EXECUTION_TIME` only applies to SELECT).
+- **`describe_table` rejected legitimate identifiers and was vulnerable
+  to backtick injection.** Old regex `/^[a-zA-Z0-9_]+$/` blocked
+  `users_v2$archive`, `my-table`, and unicode identifiers — all valid in
+  MySQL. New regex accepts everything except control chars and backticks
+  (up to 64 chars, MySQL's limit). Backticks are now also properly
+  escaped (doubled) in the wrapping quotes, as defense-in-depth.
+
+### Added
+
+- **`show_create_table` tool.** Returns the full `CREATE TABLE` statement
+  including column types, defaults, indexes, foreign keys, engine, and
+  charset. More complete than `describe_table` when reasoning about
+  schema. Also handles views (returns `CREATE VIEW`).
+- **`--check` startup mode.** Loads config, pings every connection with
+  `SELECT 1`, prints a per-connection status report to stderr, and exits
+  with non-zero status if any connection fails. Useful for validating
+  config before wiring the server into an MCP client.
+- **`connections[].multipleStatements` config flag.** Opt-in. Off by
+  default — enabling it lets a single SQL injection vector turn one query
+  into many, so it's not for general use.
+
+### Changed
+
+- **Codebase reorganized.** Shared helpers moved from `tools/registry.ts`
+  to a new `src/lib/` directory (`json.ts`, `args.ts`, `connections.ts`,
+  `identifiers.ts`, `context.ts`). `registry.ts` is now a pure dispatch
+  module. No behavior change; cleaner internal boundaries.
+- **Source maps excluded from the npm tarball.** Saves ~14 kB without
+  losing any user-facing functionality (no original sources were shipped
+  alongside the maps anyway, so they only produced orphan path
+  references in stack traces). Add `dist/**/*.map` back via `.npmignore`
+  if you need them.
+- **Per-connection `queryTimeoutMs`** now flows through to the new
+  `MAX_EXECUTION_TIME` hint, not just the client-side timeout.
+
+### Tests
+
+- Added tool-handler tests with a mocked pool (49 tests, up from 28),
+  covering: auto-LIMIT regression cases (string/comment), MAX_EXECUTION_TIME
+  injection, parameterized queries, INSERT response shape, read-only
+  guard with CTEs, EXPLAIN format selection, ANALYZE rejection,
+  identifier validation, and SHOW CREATE TABLE behavior.
+
 ## [1.1.0] - 2026-06-02
 
 > **First npm release.** Published as `mysql-mcp-toolkit`. The names

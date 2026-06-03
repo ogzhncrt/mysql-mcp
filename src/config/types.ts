@@ -22,6 +22,12 @@ export interface ConnectionConfig {
   connectionLimit?: number;
   queryTimeoutMs?: number;
   ssl?: SslConfig;
+  /**
+   * When true, the driver allows multiple statements per query separated
+   * by `;`. Off by default because it lets a single injection vector turn
+   * one query into many. Enable only when you trust the calling client.
+   */
+  multipleStatements?: boolean;
 }
 
 export interface AppConfig {

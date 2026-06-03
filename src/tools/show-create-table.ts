@@ -9,14 +9,16 @@ import {
 import type { ToolDefinition } from "../lib/context.js";
 import { assertValidIdentifier, escapeIdentifier } from "../lib/identifiers.js";
 
-export const describeTableTool: ToolDefinition = {
-  name: "describe_table",
+export const showCreateTableTool: ToolDefinition = {
+  name: "show_create_table",
 
   describe(ctx) {
     return {
-      name: "describe_table",
+      name: "show_create_table",
       description:
-        `Describe the columns and indexes of a table. ` +
+        `Return the full CREATE TABLE statement for a table — including ` +
+        `column types, defaults, indexes, foreign keys, engine, and charset. ` +
+        `More complete than describe_table when reasoning about schema. ` +
         `Configured connections: ${connectionSummary(ctx)}.`,
       inputSchema: {
         type: "object",
@@ -24,8 +26,7 @@ export const describeTableTool: ToolDefinition = {
           table: {
             type: "string",
             description:
-              "Table name. 1–64 chars, no backticks or control characters. " +
-              "Identifiers with dollar signs, hyphens, and unicode letters are OK.",
+              "Table name. 1–64 chars, no backticks or control characters.",
           },
           connection: connectionEnum(ctx),
         },
@@ -41,18 +42,21 @@ export const describeTableTool: ToolDefinition = {
 
     const connectionName = resolveConnectionName(ctx, args.connection);
     const pool = ctx.pools.getPool(connectionName);
-    const quoted = escapeIdentifier(table);
 
-    const [[columns], [indexes]] = await Promise.all([
-      pool.query<RowDataPacket[]>(`DESCRIBE ${quoted}`),
-      pool.query<RowDataPacket[]>(`SHOW INDEXES FROM ${quoted}`),
-    ]);
+    const [rows] = await pool.query<RowDataPacket[]>(
+      `SHOW CREATE TABLE ${escapeIdentifier(table)}`,
+    );
+
+    const row = rows[0] ?? {};
+    const createStatement =
+      (row["Create Table"] as string | undefined) ??
+      (row["Create View"] as string | undefined) ??
+      null;
 
     return {
       table,
-      columns,
-      indexes,
       connection: connectionName,
+      createStatement,
     };
   },
 };

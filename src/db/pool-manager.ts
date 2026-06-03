@@ -45,6 +45,7 @@ export class PoolManager {
       queueLimit: 0,
       enableKeepAlive: true,
       keepAliveInitialDelay: 0,
+      multipleStatements: config.multipleStatements === true,
     };
     if (config.ssl !== undefined) {
       options.ssl = config.ssl as PoolOptions["ssl"];
@@ -52,6 +53,16 @@ export class PoolManager {
     const pool = mysql.createPool(options);
     this.pools.set(name, pool);
     return pool;
+  }
+
+  async ping(name: string): Promise<void> {
+    const pool = this.getPool(name);
+    const conn = await pool.getConnection();
+    try {
+      await conn.query("SELECT 1");
+    } finally {
+      conn.release();
+    }
   }
 
   async closeAll(): Promise<void> {

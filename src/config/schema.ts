@@ -49,6 +49,7 @@ export const ConnectionConfigSchema = z.object({
     .min(1, "queryTimeoutMs must be >= 1")
     .optional(),
   ssl: SslConfigSchema.optional(),
+  multipleStatements: z.boolean().optional(),
 });
 
 export const AppConfigSchema = z

@@ -64,18 +64,22 @@ If you only need one connection, skip the config file entirely:
 
 ## Tools
 
-| Tool             | What it does                                                             |
-| ---------------- | ------------------------------------------------------------------------ |
-| `execute_query`  | Run any SQL. Supports `params` for `?` placeholders. Bare `SELECT`s get an auto `LIMIT` (max 10,000). Read-only connections reject `INSERT`/`UPDATE`/`DELETE`/DDL/`CALL`, including CTE-disguised writes like `WITH x AS (...) DELETE FROM t`. |
-| `explain_query`  | `EXPLAIN` a statement without executing it. Supports `format: TRADITIONAL\|JSON\|TREE` and `params`. Safe on read-only connections. |
-| `list_tables`    | `SHOW TABLES` on the chosen connection.                                  |
-| `describe_table` | `DESCRIBE <table>` + `SHOW INDEXES FROM <table>`. Table names must match `^[a-zA-Z0-9_]+$`. |
-| `list_databases` | Lists configured connections (host, database, port, read-only flag). Never includes passwords. |
+| Tool                | What it does                                                                                                                                                                                                                                                                                                  |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `execute_query`     | Run any SQL. Supports `params` for `?` placeholders. Bare `SELECT`s get an auto `LIMIT` (max 10,000) and a `MAX_EXECUTION_TIME` optimizer hint so `timeoutMs` cancels the query **server-side** on MySQL 5.7.4+. Read-only connections reject INSERT/UPDATE/DELETE/DDL/`CALL`, including CTE-disguised writes. |
+| `explain_query`     | `EXPLAIN` a statement without executing it. Supports `format: TRADITIONAL\|JSON\|TREE` and `params`. Safe on read-only connections.                                                                                                                                                                           |
+| `list_tables`       | `SHOW TABLES` on the chosen connection.                                                                                                                                                                                                                                                                       |
+| `describe_table`    | `DESCRIBE <table>` + `SHOW INDEXES FROM <table>`. Identifier must be 1–64 chars and contain no backticks or control characters (dollar signs, hyphens, and unicode letters are fine).                                                                                                                         |
+| `show_create_table` | Returns the full `CREATE TABLE` statement — column types, defaults, indexes, foreign keys, engine, charset. Also works on views (returns `CREATE VIEW`).                                                                                                                                                      |
+| `list_databases`    | Lists configured connections (host, database, port, read-only flag, ssl flag). Never includes passwords.                                                                                                                                                                                                      |
 
 Each tool accepts an optional `connection` argument. If omitted, the default
-from `defaults.connection` (or the literal `"default"`) is used. Every tool
-that runs SQL also accepts an optional `timeoutMs` (defaults to
-`defaults.queryTimeoutMs`, then `30000`).
+from `defaults.connection` (or the literal `"default"`) is used. Tools that
+run user-supplied SQL also accept an optional `timeoutMs` (defaults to the
+connection's `queryTimeoutMs`, then `defaults.queryTimeoutMs`, then `30000`).
+On SELECT, the timeout is enforced server-side via MySQL's
+`MAX_EXECUTION_TIME` optimizer hint. On non-SELECT statements the timeout
+only closes the client socket — the server may keep the query running.
 
 ### Parameterized queries
 
@@ -148,6 +152,7 @@ For each configured connection the server exposes a resource:
 | `connections[].connectionLimit` | no       | `5`          | Max connections per pool.                          |
 | `connections[].queryTimeoutMs`  | no       | inherits `defaults.queryTimeoutMs` | Per-connection timeout override. |
 | `connections[].ssl`             | no       | unset        | `true` / `false` / `"Amazon RDS"` / mysql2 SSL object (`{ ca, cert, key, rejectUnauthorized, ... }`). |
+| `connections[].multipleStatements` | no    | `false`      | When `true`, allows multiple `;`-separated statements per query. Enables a class of SQL injection — leave off unless you know you need it. |
 
 ### Config resolution order
 
@@ -183,6 +188,18 @@ Copies the bundled `config.example.json` to the target path. Default target
 is `~/.config/mcp-server-mysql/config.json`. The command refuses to
 overwrite an existing file — pick a different `--output` or delete the
 target first.
+
+## `--check`
+
+Validate config and connectivity without starting the MCP server:
+
+```
+npx -y mysql-mcp-toolkit --check [--config <path>]
+```
+
+Loads config, pings every connection with `SELECT 1`, prints a per-
+connection status report to stderr, and exits non-zero if any connection
+fails. Useful before wiring the server into an MCP client.
 
 ## Security
 

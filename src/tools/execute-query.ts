@@ -3,20 +3,22 @@ import type { ResultSetHeader, RowDataPacket } from "mysql2";
 import { MAX_QUERY_LIMIT } from "../config/types.js";
 import {
   assertCanExecute,
+  containsLimitClause,
   isSelectQuery,
   isWriteQuery,
   normalizeForPrefix,
 } from "../db/query-guard.js";
-
+import {
+  resolveParams,
+  resolvePositiveInt,
+  requireNonEmptyString,
+} from "../lib/args.js";
 import {
   connectionEnum,
   connectionSummary,
   resolveConnectionName,
-  type ToolContext,
-  type ToolDefinition,
-} from "./registry.js";
-
-const LIMIT_REGEX = /\bLIMIT\b/i;
+} from "../lib/connections.js";
+import type { ToolDefinition } from "../lib/context.js";
 
 export const executeQueryTool: ToolDefinition = {
   name: "execute_query",
@@ -32,8 +34,9 @@ export const executeQueryTool: ToolDefinition = {
         `like "WITH x AS (...) DELETE FROM t" are blocked). ` +
         `Bare SELECTs are auto-LIMITed (default ${ctx.defaultQueryLimit}, ` +
         `hard max ${MAX_QUERY_LIMIT}). ` +
-        `Pass "params" to use parameterized queries with ? placeholders; ` +
-        `this is safer than string-interpolating values into "query".`,
+        `SELECTs also get a MAX_EXECUTION_TIME optimizer hint so the ` +
+        `timeout actually cancels the query server-side on MySQL 5.7.4+. ` +
+        `Pass "params" to use parameterized queries with ? placeholders.`,
       inputSchema: {
         type: "object",
         properties: {
@@ -60,7 +63,9 @@ export const executeQueryTool: ToolDefinition = {
           timeoutMs: {
             type: "number",
             description:
-              `Per-query timeout in milliseconds. Default ${ctx.defaultQueryTimeoutMs}.`,
+              `Per-query timeout in milliseconds. Default ${ctx.defaultQueryTimeoutMs}. ` +
+              `For SELECT, cancels the query server-side via MAX_EXECUTION_TIME. ` +
+              `For non-SELECT, only closes the client socket (server may keep running).`,
             default: ctx.defaultQueryTimeoutMs,
             minimum: 1,
           },
@@ -72,23 +77,24 @@ export const executeQueryTool: ToolDefinition = {
   },
 
   async execute(args, ctx) {
-    const query = args.query;
-    if (typeof query !== "string" || query.trim() === "") {
-      throw new Error('"query" is required and must be a non-empty string');
-    }
-
+    const query = requireNonEmptyString(args.query, "query");
     const params = resolveParams(args.params);
     const connectionName = resolveConnectionName(ctx, args.connection);
     const connection = ctx.pools.getConfig(connectionName);
-    const limit = resolveLimit(args.limit, ctx.defaultQueryLimit);
-    const timeoutMs = resolveTimeout(
+    const limit = resolvePositiveInt(args.limit, ctx.defaultQueryLimit, {
+      field: "limit",
+      max: MAX_QUERY_LIMIT,
+    });
+    const timeoutMs = resolvePositiveInt(
       args.timeoutMs,
       connection.queryTimeoutMs ?? ctx.defaultQueryTimeoutMs,
+      { field: "timeoutMs" },
     );
 
     assertCanExecute(connection, query);
 
-    const finalQuery = maybeAppendLimit(query, limit);
+    const limited = maybeAppendLimit(query, limit);
+    const finalQuery = injectMaxExecutionTime(limited, timeoutMs);
     const pool = ctx.pools.getPool(connectionName);
 
     const [result] = params
@@ -99,44 +105,65 @@ export const executeQueryTool: ToolDefinition = {
   },
 };
 
-function resolveParams(value: unknown): unknown[] | null {
-  if (value === undefined || value === null) return null;
-  if (!Array.isArray(value)) {
-    throw new Error('"params" must be an array when provided');
-  }
-  return value;
-}
-
-function resolveLimit(value: unknown, fallback: number): number {
-  if (value === undefined || value === null) return fallback;
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new Error('"limit" must be a finite number');
-  }
-  if (!Number.isInteger(value) || value < 1) {
-    throw new Error('"limit" must be a positive integer');
-  }
-  if (value > MAX_QUERY_LIMIT) {
-    throw new Error(`"limit" must be <= ${MAX_QUERY_LIMIT}`);
-  }
-  return value;
-}
-
-function resolveTimeout(value: unknown, fallback: number): number {
-  if (value === undefined || value === null) return fallback;
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new Error('"timeoutMs" must be a finite number');
-  }
-  if (!Number.isInteger(value) || value < 1) {
-    throw new Error('"timeoutMs" must be a positive integer');
-  }
-  return value;
-}
-
 function maybeAppendLimit(query: string, limit: number): string {
   if (!isSelectQuery(query)) return query;
-  if (LIMIT_REGEX.test(query)) return query;
-  const trimmed = query.trimEnd().replace(/;$/, "");
+  if (containsLimitClause(query)) return query;
+  const trimmed = query.trimEnd().replace(/;+$/, "");
   return `${trimmed} LIMIT ${limit}`;
+}
+
+/**
+ * Injects /*+ MAX_EXECUTION_TIME(N) *\/ right after the leading SELECT
+ * keyword if the query is a top-level SELECT. Returns the query unchanged
+ * otherwise. CTE queries (WITH ... SELECT) are not handled — parsing them
+ * correctly requires tracking paren depth.
+ *
+ * The hint is a no-op on MySQL < 5.7.4 and MariaDB (just a comment), so
+ * injecting it is safe even when we don't know the server version.
+ */
+export function injectMaxExecutionTime(
+  sql: string,
+  timeoutMs: number,
+): string {
+  const pos = findLeadingSelectEnd(sql);
+  if (pos === null) return sql;
+  return `${sql.slice(0, pos)} /*+ MAX_EXECUTION_TIME(${timeoutMs}) */${sql.slice(pos)}`;
+}
+
+function findLeadingSelectEnd(sql: string): number | null {
+  const len = sql.length;
+  let i = 0;
+  while (i < len) {
+    const c = sql[i];
+    if (c === " " || c === "\t" || c === "\n" || c === "\r") {
+      i++;
+      continue;
+    }
+    if (c === "/" && sql[i + 1] === "*") {
+      const end = sql.indexOf("*/", i + 2);
+      if (end === -1) return null;
+      i = end + 2;
+      continue;
+    }
+    if (c === "-" && sql[i + 1] === "-") {
+      const end = sql.indexOf("\n", i + 2);
+      i = end === -1 ? len : end + 1;
+      continue;
+    }
+    if (c === "#") {
+      const end = sql.indexOf("\n", i + 1);
+      i = end === -1 ? len : end + 1;
+      continue;
+    }
+    if (sql.slice(i, i + 6).toUpperCase() === "SELECT") {
+      const after = sql[i + 6];
+      if (after === undefined || !/[A-Za-z0-9_]/.test(after)) {
+        return i + 6;
+      }
+    }
+    return null;
+  }
+  return null;
 }
 
 function buildResponse(

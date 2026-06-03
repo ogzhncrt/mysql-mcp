@@ -83,14 +83,26 @@ export function isWriteQuery(sql: string): boolean {
   return WRITE_KEYWORD_REGEX.test(stripped);
 }
 
+/**
+ * True iff the SQL's first keyword (after stripping leading comments and
+ * whitespace) is SELECT. CTE queries (`WITH ... SELECT ...`) return false —
+ * detecting them correctly requires tracking parenthesis depth across the
+ * WITH clause, which we don't do.
+ */
 export function isSelectQuery(sql: string): boolean {
-  const normalized = normalizeForPrefix(sql);
-  return (
-    normalized === "SELECT" ||
-    normalized.startsWith("SELECT ") ||
-    normalized.startsWith("SELECT\n") ||
-    normalized.startsWith("SELECT\t")
-  );
+  const stripped = stripCommentsAndStrings(sql);
+  const trimmed = stripped.trimStart();
+  return /^SELECT(\s|\(|$)/i.test(trimmed);
+}
+
+/**
+ * True iff the SQL contains a top-level LIMIT clause. String literals and
+ * comments are stripped first so `WHERE note = 'add LIMIT here'` and
+ * `-- LIMIT 10` do not trigger a false positive.
+ */
+export function containsLimitClause(sql: string): boolean {
+  const stripped = stripCommentsAndStrings(sql);
+  return /\bLIMIT\b/i.test(stripped);
 }
 
 export class ReadOnlyViolationError extends Error {

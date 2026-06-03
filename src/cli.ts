@@ -8,12 +8,14 @@ import { getVersion } from "./version.js";
 
 export interface ParsedCli {
   configPath?: string;
+  check?: boolean;
 }
 
 const USAGE = `mcp-server-mysql — Model Context Protocol server for MySQL
 
 Usage:
   mcp-server-mysql [--config <path>]
+  mcp-server-mysql --check [--config <path>]
   mcp-server-mysql init [--output <path>]
   mcp-server-mysql --help
   mcp-server-mysql --version
@@ -21,6 +23,10 @@ Usage:
 Options:
   --config <path>   Path to JSON config file. Overrides MCP_MYSQL_CONFIG and
                     auto-discovery in ./ and ~/.config/mcp-server-mysql/.
+  --check           Load config, ping every connection with SELECT 1, print
+                    a per-connection status report, and exit. Non-zero exit
+                    if any connection fails. Useful for validating config
+                    before wiring the server into an MCP client.
   --help            Print this message and exit.
   --version         Print the package version and exit.
 
@@ -57,11 +63,12 @@ export function parseCli(argv: string[] = process.argv.slice(2)): ParsedCli {
       args: argv,
       options: {
         config: { type: "string" },
+        check: { type: "boolean" },
       },
       strict: true,
       allowPositionals: false,
     });
-    return { configPath: values.config };
+    return { configPath: values.config, check: values.check === true };
   } catch (err) {
     process.stderr.write(
       `Error parsing arguments: ${(err as Error).message}\n\n`,

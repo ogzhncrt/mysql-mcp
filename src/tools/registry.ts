@@ -7,34 +7,17 @@ import {
   DEFAULT_QUERY_TIMEOUT_MS,
 } from "../config/types.js";
 import { PoolManager } from "../db/pool-manager.js";
+import type { ToolContext, ToolDefinition } from "../lib/context.js";
+import { jsonStringify } from "../lib/json.js";
 
 import { executeQueryTool } from "./execute-query.js";
+import { explainQueryTool } from "./explain-query.js";
 import { listTablesTool } from "./list-tables.js";
 import { describeTableTool } from "./describe-table.js";
+import { showCreateTableTool } from "./show-create-table.js";
 import { listDatabasesTool } from "./list-databases.js";
-import { explainQueryTool } from "./explain-query.js";
 
-export interface ToolContext {
-  config: AppConfig;
-  pools: PoolManager;
-  defaultConnection: string;
-  defaultQueryLimit: number;
-  defaultQueryTimeoutMs: number;
-}
-
-export interface ToolDefinition {
-  name: string;
-  describe(ctx: ToolContext): {
-    name: string;
-    description: string;
-    inputSchema: Record<string, unknown>;
-  };
-  execute(
-    args: Record<string, unknown>,
-    ctx: ToolContext,
-  ): Promise<unknown>;
-}
-
+export type { ToolContext, ToolDefinition } from "../lib/context.js";
 export type CallToolResponse = CallToolResult;
 
 const TOOLS: ToolDefinition[] = [
@@ -42,6 +25,7 @@ const TOOLS: ToolDefinition[] = [
   explainQueryTool,
   listTablesTool,
   describeTableTool,
+  showCreateTableTool,
   listDatabasesTool,
 ];
 
@@ -95,52 +79,4 @@ function errorResponse(message: string, tool: string): CallToolResponse {
     ],
     isError: true,
   };
-}
-
-export function jsonStringify(value: unknown): string {
-  return JSON.stringify(
-    value,
-    (_key, val) => (typeof val === "bigint" ? val.toString() : val),
-    2,
-  );
-}
-
-export function connectionEnum(ctx: ToolContext) {
-  return {
-    type: "string",
-    enum: ctx.pools.listConnectionNames(),
-    description: `Connection name. Defaults to "${ctx.defaultConnection}".`,
-    default: ctx.defaultConnection,
-  } as const;
-}
-
-export function connectionSummary(ctx: ToolContext): string {
-  return ctx.pools
-    .listConnectionNames()
-    .map((name) => {
-      const conn = ctx.pools.getConfig(name);
-      const ro = conn.readOnly === true ? " (READ-ONLY)" : "";
-      return `${name}${ro}`;
-    })
-    .join(", ");
-}
-
-export function resolveConnectionName(
-  ctx: ToolContext,
-  requested: unknown,
-): string {
-  if (requested === undefined || requested === null || requested === "") {
-    return ctx.defaultConnection;
-  }
-  if (typeof requested !== "string") {
-    throw new Error(
-      `"connection" must be a string (got ${typeof requested})`,
-    );
-  }
-  if (!ctx.pools.hasConnection(requested)) {
-    throw new Error(
-      `Unknown connection "${requested}". Available: ${ctx.pools.listConnectionNames().join(", ")}`,
-    );
-  }
-  return requested;
 }

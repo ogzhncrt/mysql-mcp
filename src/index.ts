@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { runCheck } from "./check.js";
 import { parseCli, runInit } from "./cli.js";
 import { ConfigError, loadConfig } from "./config/loader.js";
 import { DatabaseMcpServer } from "./server.js";
@@ -11,7 +12,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const { configPath } = parseCli(argv);
+  const { configPath, check } = parseCli(argv);
 
   let config;
   try {
@@ -28,6 +29,11 @@ async function main(): Promise<void> {
       process.exit(1);
     }
     throw err;
+  }
+
+  if (check) {
+    const ok = await runCheck(config);
+    process.exit(ok ? 0 : 1);
   }
 
   const server = new DatabaseMcpServer(config);

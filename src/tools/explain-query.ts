@@ -1,13 +1,17 @@
 import type { RowDataPacket } from "mysql2";
 
 import { normalizeForPrefix } from "../db/query-guard.js";
-
+import {
+  resolveParams,
+  resolvePositiveInt,
+  requireNonEmptyString,
+} from "../lib/args.js";
 import {
   connectionEnum,
   connectionSummary,
   resolveConnectionName,
-  type ToolDefinition,
-} from "./registry.js";
+} from "../lib/connections.js";
+import type { ToolDefinition } from "../lib/context.js";
 
 const FORMATS = ["TRADITIONAL", "JSON", "TREE"] as const;
 type Format = (typeof FORMATS)[number];
@@ -61,23 +65,20 @@ export const explainQueryTool: ToolDefinition = {
   },
 
   async execute(args, ctx) {
-    const query = args.query;
-    if (typeof query !== "string" || query.trim() === "") {
-      throw new Error('"query" is required and must be a non-empty string');
-    }
-
+    const query = requireNonEmptyString(args.query, "query");
     rejectAnalyze(query);
 
     const format = resolveFormat(args.format);
     const params = resolveParams(args.params);
     const connectionName = resolveConnectionName(ctx, args.connection);
     const connection = ctx.pools.getConfig(connectionName);
-    const timeoutMs = resolveTimeout(
+    const timeoutMs = resolvePositiveInt(
       args.timeoutMs,
       connection.queryTimeoutMs ?? ctx.defaultQueryTimeoutMs,
+      { field: "timeoutMs" },
     );
 
-    const stripped = query.trimEnd().replace(/;$/, "");
+    const stripped = query.trimEnd().replace(/;+$/, "");
     const explainSql =
       format === "TRADITIONAL"
         ? `EXPLAIN ${stripped}`
@@ -129,23 +130,4 @@ function resolveFormat(value: unknown): Format {
     );
   }
   return upper as Format;
-}
-
-function resolveParams(value: unknown): unknown[] | null {
-  if (value === undefined || value === null) return null;
-  if (!Array.isArray(value)) {
-    throw new Error('"params" must be an array when provided');
-  }
-  return value;
-}
-
-function resolveTimeout(value: unknown, fallback: number): number {
-  if (value === undefined || value === null) return fallback;
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new Error('"timeoutMs" must be a finite number');
-  }
-  if (!Number.isInteger(value) || value < 1) {
-    throw new Error('"timeoutMs" must be a positive integer');
-  }
-  return value;
 }

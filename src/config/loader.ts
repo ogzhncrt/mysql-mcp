@@ -17,6 +17,12 @@ export interface LoadConfigOptions {
   cliConfigPath?: string;
   env?: NodeJS.ProcessEnv;
   cwd?: string;
+  /**
+   * Override `os.homedir()` for the user-config auto-discovery path.
+   * Tests pass this to keep loader behavior independent of the host's
+   * `~/.config/mcp-server-mysql/config.json` file.
+   */
+  homedir?: string;
 }
 
 export interface LoadConfigResult {
@@ -38,12 +44,13 @@ export function resolveConfigPath(
 ): string | null {
   const env = options.env ?? process.env;
   const cwd = options.cwd ?? process.cwd();
+  const home = options.homedir ?? homedir();
 
   const candidates: Array<string | undefined> = [
     options.cliConfigPath,
     env.MCP_MYSQL_CONFIG,
     join(cwd, "mcp-mysql.config.json"),
-    join(homedir(), ".config", "mcp-server-mysql", "config.json"),
+    join(home, ".config", "mcp-server-mysql", "config.json"),
   ];
 
   for (const candidate of candidates) {

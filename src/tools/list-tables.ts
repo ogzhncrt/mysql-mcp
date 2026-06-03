@@ -4,8 +4,8 @@ import {
   connectionEnum,
   connectionSummary,
   resolveConnectionName,
-  type ToolDefinition,
-} from "./registry.js";
+} from "../lib/connections.js";
+import type { ToolDefinition } from "../lib/context.js";
 
 export const listTablesTool: ToolDefinition = {
   name: "list_tables",

@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ConfigError, loadConfig } from "../src/config/loader.js";
 
 const EMPTY_ENV: NodeJS.ProcessEnv = {};
+const ISOLATED_HOME = "/nonexistent-homedir";
+const ISOLATED_CWD = "/nonexistent-cwd";
 
 function writeTempConfig(contents: unknown): {
   dir: string;
@@ -91,7 +93,11 @@ describe("loadConfig", () => {
       MYSQL_READ_ONLY: "true",
     };
 
-    const { config, source } = loadConfig({ env, cwd: "/nonexistent-cwd" });
+    const { config, source } = loadConfig({
+      env,
+      cwd: ISOLATED_CWD,
+      homedir: ISOLATED_HOME,
+    });
 
     expect(source).toEqual({ kind: "env" });
     expect(config.connections).toHaveLength(1);
@@ -105,7 +111,11 @@ describe("loadConfig", () => {
 
   it("throws ConfigError when no source is available", () => {
     expect(() =>
-      loadConfig({ env: EMPTY_ENV, cwd: "/nonexistent-cwd" }),
+      loadConfig({
+        env: EMPTY_ENV,
+        cwd: ISOLATED_CWD,
+        homedir: ISOLATED_HOME,
+      }),
     ).toThrowError(ConfigError);
   });
 
@@ -186,7 +196,8 @@ describe("loadConfig", () => {
         MYSQL_SSL: "amazon-rds",
         MYSQL_QUERY_TIMEOUT_MS: "5000",
       },
-      cwd: "/nonexistent-cwd",
+      cwd: ISOLATED_CWD,
+      homedir: ISOLATED_HOME,
     });
     expect(config.connections[0].ssl).toBe("Amazon RDS");
     expect(config.connections[0].queryTimeoutMs).toBe(5000);

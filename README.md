@@ -28,7 +28,7 @@ Published as **`mysql-mcp-toolkit`** on npm.
          "command": "npx",
          "args": [
            "-y",
-           "mysql-mcp-toolkit",
+           "mysql-mcp-toolkit@latest",
            "--config",
            "/absolute/path/to/config.json"
          ]
@@ -36,6 +36,9 @@ Published as **`mysql-mcp-toolkit`** on npm.
      }
    }
    ```
+
+   The `@latest` tag matters — see [Updating](#updating). Without it, npx
+   caches the first version it installs and keeps reusing it.
 
 4. Restart Cursor. You should see `mysql` show up under MCP tools.
 
@@ -48,7 +51,7 @@ If you only need one connection, skip the config file entirely:
   "mcpServers": {
     "mysql": {
       "command": "npx",
-      "args": ["-y", "mysql-mcp-toolkit"],
+      "args": ["-y", "mysql-mcp-toolkit@latest"],
       "env": {
         "MYSQL_HOST": "127.0.0.1",
         "MYSQL_PORT": "3306",
@@ -61,6 +64,26 @@ If you only need one connection, skip the config file entirely:
   }
 }
 ```
+
+## Updating
+
+`npx` caches each package spec under `~/.npm/_npx/<hash>/`. If your `mcp.json`
+points at `mysql-mcp-toolkit` with no version tag, npx installs whatever is
+current on the first run and **keeps reusing that cached copy forever** —
+even after new versions ship to npm. That's why the examples above pin
+`@latest`: it forces npx to resolve against the registry on every spawn, so
+new releases get picked up the next time Cursor restarts the server.
+
+| You want…                            | Use this in `mcp.json`              | Update behavior                          |
+| ------------------------------------ | ----------------------------------- | ---------------------------------------- |
+| Always run the newest release        | `mysql-mcp-toolkit@latest`          | Auto-updates on Cursor restart           |
+| Reproducible pin to a known version  | `mysql-mcp-toolkit@1.2.0`           | Manual — edit `mcp.json` on each upgrade |
+| Force-refresh an unpinned cache once | `mysql-mcp-toolkit` (no tag)        | `rm -rf ~/.npm/_npx` before restart      |
+
+After any of these, **restart Cursor** to respawn the MCP child process.
+Verify the upgrade worked by checking the tool list — `show_create_table`
+and `--check` arrived in 1.2.0, so seeing the former in Cursor's MCP panel
+confirms you're not still on 1.1.0.
 
 ## Tools
 

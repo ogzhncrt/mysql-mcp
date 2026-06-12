@@ -12,6 +12,12 @@ export const listDatabasesTool: ToolDefinition = {
       description:
         `List configured MySQL connections (without passwords). ` +
         `Configured connections: ${connectionSummary(ctx)}.`,
+      annotations: {
+        title: "List configured connections",
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
       inputSchema: {
         type: "object",
         properties: {},

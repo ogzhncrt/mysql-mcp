@@ -1,6 +1,7 @@
 import type { ConnectionConfig } from "../../src/config/types.js";
 import {
   DEFAULT_CONNECTION_NAME,
+  DEFAULT_MAX_RESPONSE_BYTES,
   DEFAULT_QUERY_LIMIT,
   DEFAULT_QUERY_TIMEOUT_MS,
 } from "../../src/config/types.js";
@@ -80,6 +81,7 @@ export interface BuildContextOptions {
   defaultConnection?: string;
   defaultQueryLimit?: number;
   defaultQueryTimeoutMs?: number;
+  defaultMaxResponseBytes?: number;
 }
 
 const DEFAULT_CONNECTIONS: ConnectionConfig[] = [
@@ -106,5 +108,7 @@ export function buildTestContext(opts: BuildContextOptions = {}): TestContext {
       opts.defaultConnection ?? connections[0]?.connectionName ?? DEFAULT_CONNECTION_NAME,
     defaultQueryLimit: opts.defaultQueryLimit ?? DEFAULT_QUERY_LIMIT,
     defaultQueryTimeoutMs: opts.defaultQueryTimeoutMs ?? DEFAULT_QUERY_TIMEOUT_MS,
+    defaultMaxResponseBytes:
+      opts.defaultMaxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES,
   } as TestContext;
 }

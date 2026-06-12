@@ -3,8 +3,10 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { AppConfig } from "../config/types.js";
 import {
   DEFAULT_CONNECTION_NAME,
+  DEFAULT_MAX_RESPONSE_BYTES,
   DEFAULT_QUERY_LIMIT,
   DEFAULT_QUERY_TIMEOUT_MS,
+  MAX_QUERY_LIMIT,
 } from "../config/types.js";
 import { PoolManager } from "../db/pool-manager.js";
 import type { ToolContext, ToolDefinition } from "../lib/context.js";
@@ -16,6 +18,9 @@ import { listTablesTool } from "./list-tables.js";
 import { describeTableTool } from "./describe-table.js";
 import { showCreateTableTool } from "./show-create-table.js";
 import { listDatabasesTool } from "./list-databases.js";
+import { tableStatsTool } from "./table-stats.js";
+import { listForeignKeysTool } from "./list-foreign-keys.js";
+import { searchColumnsTool } from "./search-columns.js";
 
 export type { ToolContext, ToolDefinition } from "../lib/context.js";
 export type CallToolResponse = CallToolResult;
@@ -27,6 +32,9 @@ const TOOLS: ToolDefinition[] = [
   describeTableTool,
   showCreateTableTool,
   listDatabasesTool,
+  tableStatsTool,
+  listForeignKeysTool,
+  searchColumnsTool,
 ];
 
 export function createToolContext(config: AppConfig): ToolContext {
@@ -35,10 +43,16 @@ export function createToolContext(config: AppConfig): ToolContext {
     pools: new PoolManager(config.connections),
     defaultConnection:
       config.defaults?.connection ?? DEFAULT_CONNECTION_NAME,
-    defaultQueryLimit:
+    // Schema already caps this for file configs; clamp again so no other
+    // config path can exceed the hard limit.
+    defaultQueryLimit: Math.min(
       config.defaults?.queryLimit ?? DEFAULT_QUERY_LIMIT,
+      MAX_QUERY_LIMIT,
+    ),
     defaultQueryTimeoutMs:
       config.defaults?.queryTimeoutMs ?? DEFAULT_QUERY_TIMEOUT_MS,
+    defaultMaxResponseBytes:
+      config.defaults?.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES,
   };
 }
 

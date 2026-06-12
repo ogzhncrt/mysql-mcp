@@ -20,6 +20,12 @@ export function connectionSummary(ctx: ToolContext): string {
     .join(", ");
 }
 
+export function allConnectionsReadOnly(ctx: ToolContext): boolean {
+  return ctx.pools
+    .listConnectionNames()
+    .every((name) => ctx.pools.getConfig(name).readOnly === true);
+}
+
 export function resolveConnectionName(
   ctx: ToolContext,
   requested: unknown,

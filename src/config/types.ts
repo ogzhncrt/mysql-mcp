@@ -35,6 +35,7 @@ export interface AppConfig {
     connection?: string;
     queryLimit?: number;
     queryTimeoutMs?: number;
+    maxResponseBytes?: number;
   };
   connections: ConnectionConfig[];
 }
@@ -45,3 +46,4 @@ export const DEFAULT_QUERY_LIMIT = 100;
 export const DEFAULT_QUERY_TIMEOUT_MS = 30_000;
 export const DEFAULT_CONNECTION_NAME = "default";
 export const MAX_QUERY_LIMIT = 10_000;
+export const DEFAULT_MAX_RESPONSE_BYTES = 1_000_000;

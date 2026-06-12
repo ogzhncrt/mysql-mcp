@@ -5,6 +5,94 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-06-12
+
+### Security
+
+- **Read-only guard is now a default-deny allowlist.** The 1.x guard was a
+  keyword *blocklist*, and blocklists have holes: `LOAD DATA INFILE`,
+  `SET GLOBAL`, `KILL`, `FLUSH`, `RESET MASTER`, `PURGE BINARY LOGS`,
+  `OPTIMIZE TABLE`, `DO SLEEP(...)`, `HANDLER`, `PREPARE`, and transaction
+  control all executed on `readOnly: true` connections. Now only statements
+  starting with `SELECT`, `WITH`, `TABLE`, `VALUES`, `SHOW`, `EXPLAIN`,
+  `DESCRIBE`/`DESC`, `HELP`, or `CHECKSUM` are allowed, and
+  `SELECT`/`WITH`/`TABLE`/`VALUES` bodies are still scanned for embedded
+  write verbs (CTE writes) plus `INTO OUTFILE`/`INTO DUMPFILE`.
+  Behavior change: statements like `SET`, `BEGIN`/`COMMIT`, `USE`, and
+  `SELECT ... FOR UPDATE` (write locks) are now rejected on read-only
+  connections. With `multipleStatements: true`, every `;`-separated
+  statement is checked, not just the first.
+- **`EXPLAIN ANALYZE` bypass closed.** `explain_query` rejected a leading
+  `ANALYZE` but not `/*c*/ ANALYZE ...` — MySQL allows comments between
+  tokens, so the resulting `EXPLAIN /*c*/ ANALYZE ...` actually *executed*
+  the statement on 8.0.18+. The check is now comment-aware, and the guard
+  also catches `EXPLAIN ANALYZE` / `DESC ANALYZE` passed to
+  `execute_query` on read-only connections.
+- **`explain_query` rejects multi-statement input.** With
+  `multipleStatements: true`, `explain_query("SELECT 1; DROP TABLE x")`
+  executed the `DROP` with no read-only check. `;`-separated statements
+  are now rejected (semicolons inside string literals are fine).
+- **`defaults.queryLimit` is clamped to the hard max.** A config with
+  `queryLimit: 50000` previously defeated the documented `MAX_QUERY_LIMIT`
+  of 10,000 whenever the `limit` arg was omitted.
+
+### Fixed
+
+- **Read-only guard false positives.** The keyword scan matched inside
+  backtick-quoted identifiers (the old comment claiming `\b` prevented
+  this was wrong — `\b` matches right after a backtick). These pure reads
+  were all rejected on read-only connections and now work:
+  ``SELECT `update` FROM audit``, `SHOW CREATE TABLE t`,
+  `EXPLAIN UPDATE t SET ...`, `SELECT REPLACE(name,'a','b')`,
+  `SELECT INSERT('abcd',2,2,'xy')`, `SELECT TRUNCATE(2.5,1)`.
+  Backtick-quoted identifiers are now masked before keyword scanning, and
+  the `REPLACE()`/`INSERT()`/`TRUNCATE()` SQL functions are recognized.
+- **Auto-LIMIT was silently swallowed by trailing comments.**
+  `SELECT * FROM t -- note` became `... -- note LIMIT 100` — the LIMIT
+  landed inside the comment and the query ran unbounded. The limit is now
+  appended on its own line after trailing comments/semicolons are removed
+  (position-safe: a `;` or `--` inside a trailing string literal is never
+  mistaken for noise).
+- **A `LIMIT` inside a subquery no longer suppresses the outer auto-LIMIT.**
+  `SELECT * FROM (SELECT 1 LIMIT 5) x` previously got no outer cap; LIMIT
+  detection is now parenthesis-depth-aware.
+- **Comment/string stripping is a single pass.** Comment markers inside
+  string literals (e.g. `SELECT '-- not a comment'`) were previously
+  mangled by the regex-based comment pass running before string removal.
+- **BIGINT values above 2^53 no longer lose precision.** Pools now set
+  `supportBigNumbers: true`; oversized values come back as strings.
+- **DATE/DATETIME/TIMESTAMP are returned as plain strings**
+  (`dateStrings: true`) instead of JS `Date` objects, which were getting
+  timezone-shifted during JSON serialization.
+
+### Added
+
+- **Three schema tools.** `table_stats` (per-table size, approximate row
+  count, engine, auto-increment from `information_schema.TABLES`),
+  `list_foreign_keys` (relationships, grouped per constraint, both
+  directions when a table is given), and `search_columns` (find a column
+  name across all tables, case-insensitive substring).
+- **MCP tool annotations.** Every tool now advertises
+  `readOnlyHint`/`destructiveHint`/`idempotentHint`, so MCP clients can
+  relax approval prompts for safe tools. `execute_query` reports
+  `readOnlyHint: true` when every configured connection is read-only.
+- **`format: "compact"` on `execute_query`.** Returns
+  `{ columns: [...], rows: [[...]] }` instead of one object per row —
+  much smaller payloads for wide result sets.
+- **Response size cap.** New `maxResponseBytes` arg on `execute_query`
+  (default 1,000,000, configurable via `defaults.maxResponseBytes`).
+  Oversized result sets are truncated with `truncated: true`, the fetched
+  row count, and a note suggesting a narrower query.
+- `execute_query`'s description now warns that session state
+  (transactions, `SET`, `USE`, temp tables) does not persist between
+  calls, since each call may run on a different pooled connection.
+
+### Tests
+
+- 83 tests, up from 49: allowlist bypass/false-positive matrix, masking
+  position-preservation, top-level LIMIT detection, trailing-noise
+  trimming, compact format, truncation, and the three new tools.
+
 ## [1.2.0] - 2026-06-03
 
 ### Fixed

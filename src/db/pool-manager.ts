@@ -46,6 +46,12 @@ export class PoolManager {
       enableKeepAlive: true,
       keepAliveInitialDelay: 0,
       multipleStatements: config.multipleStatements === true,
+      // BIGINTs above 2^53 would silently lose precision as JS numbers;
+      // with supportBigNumbers they come back as strings only when needed.
+      supportBigNumbers: true,
+      // Return DATE/DATETIME/TIMESTAMP as plain strings instead of JS
+      // Date objects, avoiding timezone shifts in the JSON output.
+      dateStrings: true,
     };
     if (config.ssl !== undefined) {
       options.ssl = config.ssl as PoolOptions["ssl"];

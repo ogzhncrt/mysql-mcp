@@ -1,6 +1,10 @@
 import type { RowDataPacket } from "mysql2";
 
-import { normalizeForPrefix } from "../db/query-guard.js";
+import {
+  splitStatements,
+  stripCommentsAndStrings,
+  trimTrailingNoise,
+} from "../db/query-guard.js";
 import {
   resolveParams,
   resolvePositiveInt,
@@ -28,6 +32,12 @@ export const explainQueryTool: ToolDefinition = {
         `row counts before running an expensive query — especially on ` +
         `read-only production connections. ` +
         `Configured connections: ${connectionSummary(ctx)}.`,
+      annotations: {
+        title: "Explain query plan",
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
       inputSchema: {
         type: "object",
         properties: {
@@ -66,7 +76,7 @@ export const explainQueryTool: ToolDefinition = {
 
   async execute(args, ctx) {
     const query = requireNonEmptyString(args.query, "query");
-    rejectAnalyze(query);
+    assertExplainable(query);
 
     const format = resolveFormat(args.format);
     const params = resolveParams(args.params);
@@ -78,7 +88,7 @@ export const explainQueryTool: ToolDefinition = {
       { field: "timeoutMs" },
     );
 
-    const stripped = query.trimEnd().replace(/;+$/, "");
+    const stripped = trimTrailingNoise(query);
     const explainSql =
       format === "TRADITIONAL"
         ? `EXPLAIN ${stripped}`
@@ -104,14 +114,26 @@ export const explainQueryTool: ToolDefinition = {
   },
 };
 
-function rejectAnalyze(query: string): void {
-  const normalized = normalizeForPrefix(query);
-  if (
-    normalized === "ANALYZE" ||
-    normalized.startsWith("ANALYZE ") ||
-    normalized.startsWith("ANALYZE\n") ||
-    normalized.startsWith("ANALYZE\t")
-  ) {
+/**
+ * Two safety checks, both on the masked SQL so comments and string
+ * literals can't defeat them:
+ *   - rejects multi-statement input: with `multipleStatements` enabled,
+ *     "SELECT 1; DROP TABLE x" would execute the DROP with no read-only
+ *     check, since EXPLAIN itself never executes anything;
+ *   - rejects a leading ANALYZE (even hidden behind a comment, e.g.
+ *     "/*c*\/ ANALYZE SELECT ..."), because "EXPLAIN ANALYZE" actually
+ *     executes the statement on MySQL 8.0.18+.
+ */
+function assertExplainable(query: string): void {
+  const masked = stripCommentsAndStrings(query);
+  const statements = splitStatements(masked).filter((s) => s.trim() !== "");
+  if (statements.length > 1) {
+    throw new Error(
+      '"query" must be a single statement; ";"-separated statements are not allowed in explain_query',
+    );
+  }
+  const stmt = (statements[0] ?? "").trimStart();
+  if (/^ANALYZE\b/i.test(stmt)) {
     throw new Error(
       '"query" must not start with ANALYZE; use execute_query for ANALYZE statements',
     );

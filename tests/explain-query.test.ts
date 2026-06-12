@@ -44,6 +44,46 @@ describe("explain_query", () => {
     expect(ctx.pools.pool.queries).toHaveLength(0);
   });
 
+  it("rejects ANALYZE hidden behind a leading comment (regression: 1.2 bypass)", async () => {
+    const ctx = buildTestContext();
+    await expect(
+      explainQueryTool.execute({ query: "/* c */ ANALYZE SELECT 1" }, ctx),
+    ).rejects.toThrow(/ANALYZE/);
+    expect(ctx.pools.pool.queries).toHaveLength(0);
+  });
+
+  it("rejects multi-statement input", async () => {
+    const ctx = buildTestContext();
+    await expect(
+      explainQueryTool.execute(
+        { query: "SELECT 1; DROP TABLE users" },
+        ctx,
+      ),
+    ).rejects.toThrow(/single statement/);
+    expect(ctx.pools.pool.queries).toHaveLength(0);
+  });
+
+  it("allows semicolons inside string literals", async () => {
+    const ctx = buildTestContext();
+    ctx.pools.pool.pushResponse([]);
+
+    await explainQueryTool.execute(
+      { query: "SELECT * FROM t WHERE x = 'a;b'" },
+      ctx,
+    );
+
+    expect(ctx.pools.pool.queries).toHaveLength(1);
+  });
+
+  it("strips a trailing comment after the semicolon", async () => {
+    const ctx = buildTestContext();
+    ctx.pools.pool.pushResponse([]);
+
+    await explainQueryTool.execute({ query: "SELECT 1; -- done" }, ctx);
+
+    expect(ctx.pools.pool.queries[0].sql).toBe("EXPLAIN SELECT 1");
+  });
+
   it("rejects unknown format values", async () => {
     const ctx = buildTestContext();
     await expect(

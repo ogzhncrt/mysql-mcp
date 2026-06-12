@@ -18,6 +18,12 @@ export const describeTableTool: ToolDefinition = {
       description:
         `Describe the columns and indexes of a table. ` +
         `Configured connections: ${connectionSummary(ctx)}.`,
+      annotations: {
+        title: "Describe table",
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
       inputSchema: {
         type: "object",
         properties: {

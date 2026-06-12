@@ -20,6 +20,12 @@ export const showCreateTableTool: ToolDefinition = {
         `column types, defaults, indexes, foreign keys, engine, and charset. ` +
         `More complete than describe_table when reasoning about schema. ` +
         `Configured connections: ${connectionSummary(ctx)}.`,
+      annotations: {
+        title: "Show CREATE TABLE",
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
       inputSchema: {
         type: "object",
         properties: {

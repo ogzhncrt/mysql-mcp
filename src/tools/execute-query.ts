@@ -1,12 +1,12 @@
-import type { ResultSetHeader, RowDataPacket } from "mysql2";
+import type { FieldPacket, ResultSetHeader, RowDataPacket } from "mysql2";
 
 import { MAX_QUERY_LIMIT } from "../config/types.js";
 import {
   assertCanExecute,
-  containsLimitClause,
+  containsTopLevelLimit,
   isSelectQuery,
-  isWriteQuery,
-  normalizeForPrefix,
+  stripCommentsAndStrings,
+  trimTrailingNoise,
 } from "../db/query-guard.js";
 import {
   resolveParams,
@@ -14,29 +14,45 @@ import {
   requireNonEmptyString,
 } from "../lib/args.js";
 import {
+  allConnectionsReadOnly,
   connectionEnum,
   connectionSummary,
   resolveConnectionName,
 } from "../lib/connections.js";
 import type { ToolDefinition } from "../lib/context.js";
+import { jsonStringify } from "../lib/json.js";
+
+const FORMATS = ["objects", "compact"] as const;
+type RowFormat = (typeof FORMATS)[number];
 
 export const executeQueryTool: ToolDefinition = {
   name: "execute_query",
 
   describe(ctx) {
+    const readOnly = allConnectionsReadOnly(ctx);
     return {
       name: "execute_query",
       description:
         `Execute a SQL query against a configured MySQL connection. ` +
         `Configured connections: ${connectionSummary(ctx)}. ` +
-        `Read-only connections reject INSERT/UPDATE/DELETE/DDL/CALL ` +
-        `(detection is comment- and string-literal-aware, so CTE bypasses ` +
-        `like "WITH x AS (...) DELETE FROM t" are blocked). ` +
+        `Read-only connections allow only read statements ` +
+        `(SELECT/SHOW/EXPLAIN/DESCRIBE/WITH...SELECT/TABLE/VALUES/HELP/CHECKSUM); ` +
+        `everything else — including CTE-disguised writes, LOAD DATA, SET, ` +
+        `KILL, transaction control, and SELECT ... INTO OUTFILE — is rejected. ` +
         `Bare SELECTs are auto-LIMITed (default ${ctx.defaultQueryLimit}, ` +
         `hard max ${MAX_QUERY_LIMIT}). ` +
         `SELECTs also get a MAX_EXECUTION_TIME optimizer hint so the ` +
         `timeout actually cancels the query server-side on MySQL 5.7.4+. ` +
-        `Pass "params" to use parameterized queries with ? placeholders.`,
+        `Pass "params" to use parameterized queries with ? placeholders. ` +
+        `Note: each call may run on a different pooled connection, so ` +
+        `session state (transactions, SET, USE, temp tables) does not ` +
+        `persist between calls.`,
+      annotations: {
+        title: "Execute SQL query",
+        readOnlyHint: readOnly,
+        destructiveHint: !readOnly,
+        openWorldHint: false,
+      },
       inputSchema: {
         type: "object",
         properties: {
@@ -69,6 +85,24 @@ export const executeQueryTool: ToolDefinition = {
             default: ctx.defaultQueryTimeoutMs,
             minimum: 1,
           },
+          format: {
+            type: "string",
+            enum: [...FORMATS],
+            description:
+              `Row output format. "objects" (default) returns one JSON object ` +
+              `per row. "compact" returns { columns: [...], rows: [[...]] } — ` +
+              `much smaller for wide result sets; prefer it for large reads.`,
+            default: "objects",
+          },
+          maxResponseBytes: {
+            type: "number",
+            description:
+              `Approximate cap on the serialized size of returned rows. ` +
+              `Default ${ctx.defaultMaxResponseBytes}. When exceeded, rows are ` +
+              `truncated and the response says so.`,
+            default: ctx.defaultMaxResponseBytes,
+            minimum: 1024,
+          },
         },
         required: ["query"],
         additionalProperties: false,
@@ -90,6 +124,12 @@ export const executeQueryTool: ToolDefinition = {
       connection.queryTimeoutMs ?? ctx.defaultQueryTimeoutMs,
       { field: "timeoutMs" },
     );
+    const format = resolveFormat(args.format);
+    const maxResponseBytes = resolvePositiveInt(
+      args.maxResponseBytes,
+      ctx.defaultMaxResponseBytes,
+      { field: "maxResponseBytes", min: 1024 },
+    );
 
     assertCanExecute(connection, query);
 
@@ -97,19 +137,38 @@ export const executeQueryTool: ToolDefinition = {
     const finalQuery = injectMaxExecutionTime(limited, timeoutMs);
     const pool = ctx.pools.getPool(connectionName);
 
-    const [result] = params
+    const [result, fields] = params
       ? await pool.query({ sql: finalQuery, timeout: timeoutMs, values: params })
       : await pool.query({ sql: finalQuery, timeout: timeoutMs });
 
-    return buildResponse(connectionName, query, result);
+    return buildResponse({
+      connection: connectionName,
+      originalQuery: query,
+      result,
+      fields: fields as FieldPacket[] | undefined,
+      format,
+      maxResponseBytes,
+    });
   },
 };
 
+function resolveFormat(value: unknown): RowFormat {
+  if (value === undefined || value === null) return "objects";
+  if (typeof value !== "string" || !FORMATS.includes(value as RowFormat)) {
+    throw new Error(`"format" must be one of ${FORMATS.join(", ")}`);
+  }
+  return value as RowFormat;
+}
+
+/**
+ * Appends `LIMIT n` to bare SELECTs. The limit goes on its own line after
+ * trailing comments/semicolons are removed, so a query ending in
+ * `-- note` can't swallow the LIMIT into the comment (1.2 bug).
+ */
 function maybeAppendLimit(query: string, limit: number): string {
   if (!isSelectQuery(query)) return query;
-  if (containsLimitClause(query)) return query;
-  const trimmed = query.trimEnd().replace(/;+$/, "");
-  return `${trimmed} LIMIT ${limit}`;
+  if (containsTopLevelLimit(query)) return query;
+  return `${trimTrailingNoise(query)}\nLIMIT ${limit}`;
 }
 
 /**
@@ -166,21 +225,29 @@ function findLeadingSelectEnd(sql: string): number | null {
   return null;
 }
 
-function buildResponse(
-  connection: string,
-  originalQuery: string,
-  result: unknown,
-): Record<string, unknown> {
+interface BuildResponseInput {
+  connection: string;
+  originalQuery: string;
+  result: unknown;
+  fields: FieldPacket[] | undefined;
+  format: RowFormat;
+  maxResponseBytes: number;
+}
+
+function buildResponse(input: BuildResponseInput): Record<string, unknown> {
+  const { connection, originalQuery, result, fields, format, maxResponseBytes } =
+    input;
   const queryType = detectQueryType(originalQuery);
 
   if (Array.isArray(result)) {
-    const rows = result as RowDataPacket[];
-    return {
+    return buildRowsResponse(
       connection,
       queryType,
-      rows,
-      rowCount: rows.length,
-    };
+      result as RowDataPacket[],
+      fields,
+      format,
+      maxResponseBytes,
+    );
   }
 
   const header = result as ResultSetHeader;
@@ -225,16 +292,78 @@ function buildResponse(
   };
 }
 
-function detectQueryType(sql: string): string {
-  const normalized = normalizeForPrefix(sql);
-  if (normalized.startsWith("SELECT")) return "SELECT";
-  if (normalized.startsWith("INSERT")) return "INSERT";
-  if (normalized.startsWith("UPDATE")) return "UPDATE";
-  if (normalized.startsWith("DELETE")) return "DELETE";
-  if (isWriteQuery(sql)) {
-    const firstWord = normalized.split(/\s+/)[0];
-    return firstWord || "OTHER";
+function buildRowsResponse(
+  connection: string,
+  queryType: string,
+  rows: RowDataPacket[],
+  fields: FieldPacket[] | undefined,
+  format: RowFormat,
+  maxResponseBytes: number,
+): Record<string, unknown> {
+  const columns = resolveColumns(rows, fields);
+
+  const outputRows: unknown[] =
+    format === "compact"
+      ? rows.map((row) => columns.map((col) => row[col]))
+      : rows;
+
+  const { kept, truncated } = capBySerializedSize(outputRows, maxResponseBytes);
+
+  const base: Record<string, unknown> = {
+    connection,
+    queryType,
+    rowCount: kept.length,
+  };
+
+  if (format === "compact") {
+    base.columns = columns;
+    base.rows = kept;
+  } else {
+    base.rows = kept;
   }
-  const firstWord = normalized.split(/\s+/)[0];
+
+  if (truncated) {
+    base.truncated = true;
+    base.fetchedRowCount = rows.length;
+    base.note =
+      `Response truncated: ${kept.length} of ${rows.length} fetched rows ` +
+      `fit within maxResponseBytes=${maxResponseBytes}. Narrow the SELECT, ` +
+      `lower the LIMIT, or use format:"compact".`;
+  }
+
+  return base;
+}
+
+function resolveColumns(
+  rows: RowDataPacket[],
+  fields: FieldPacket[] | undefined,
+): string[] {
+  if (fields && fields.length > 0) {
+    return fields.map((f) => f.name);
+  }
+  return rows.length > 0 ? Object.keys(rows[0]) : [];
+}
+
+/**
+ * Keeps rows in order until their cumulative serialized size exceeds the
+ * budget. Approximate by design — measures rows only, not the envelope.
+ */
+function capBySerializedSize(
+  rows: unknown[],
+  maxBytes: number,
+): { kept: unknown[]; truncated: boolean } {
+  let used = 0;
+  for (let i = 0; i < rows.length; i++) {
+    used += jsonStringify(rows[i]).length + 1;
+    if (used > maxBytes) {
+      return { kept: rows.slice(0, i), truncated: true };
+    }
+  }
+  return { kept: rows, truncated: false };
+}
+
+function detectQueryType(sql: string): string {
+  const masked = stripCommentsAndStrings(sql);
+  const firstWord = masked.trim().split(/\s+/)[0]?.toUpperCase();
   return firstWord || "OTHER";
 }

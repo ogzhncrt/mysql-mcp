@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { MAX_QUERY_LIMIT } from "./types.js";
+
 const connectionNameRegex = /^[a-zA-Z0-9_-]+$/;
 
 const SslOptionsSchema = z.object({
@@ -57,8 +59,21 @@ export const AppConfigSchema = z
     defaults: z
       .object({
         connection: z.string().min(1).optional(),
-        queryLimit: z.number().int().min(1).optional(),
+        queryLimit: z
+          .number()
+          .int()
+          .min(1)
+          .max(
+            MAX_QUERY_LIMIT,
+            `queryLimit must be <= ${MAX_QUERY_LIMIT}`,
+          )
+          .optional(),
         queryTimeoutMs: z.number().int().min(1).optional(),
+        maxResponseBytes: z
+          .number()
+          .int()
+          .min(1024, "maxResponseBytes must be >= 1024")
+          .optional(),
       })
       .optional(),
     connections: z

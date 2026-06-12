@@ -16,6 +16,12 @@ export const listTablesTool: ToolDefinition = {
       description:
         `List all tables in the selected MySQL database. ` +
         `Configured connections: ${connectionSummary(ctx)}.`,
+      annotations: {
+        title: "List tables",
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
       inputSchema: {
         type: "object",
         properties: {

@@ -35,7 +35,7 @@ export const searchColumnsTool: ToolDefinition = {
       description:
         `Find columns by name across every table in the selected database ` +
         `(case-insensitive substring match). Useful for locating where a ` +
-        `field lives — e.g. "email" or "tenant_id" — without describing ` +
+        `field lives (e.g. "email" or "tenant_id") without describing ` +
         `tables one by one. Returns up to ${MAX_MATCHES} matches with table, ` +
         `type, nullability, and key info. ` +
         `Configured connections: ${connectionSummary(ctx)}.`,

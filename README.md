@@ -4,7 +4,7 @@
 
 A Model Context Protocol (MCP) server for MySQL. Lets Cursor and other MCP
 clients list tables, describe schema, and run SQL against any MySQL database
-you configure — over stdio, with read-only protection for production
+you configure, over stdio, with read-only protection for production
 connections.
 
 Published as **`mysql-mcp-toolkit`** on npm.
@@ -37,7 +37,7 @@ Published as **`mysql-mcp-toolkit`** on npm.
    }
    ```
 
-   The `@latest` tag matters — see [Updating](#updating). Without it, npx
+   The `@latest` tag matters; see [Updating](#updating). Without it, npx
    caches the first version it installs and keeps reusing it.
 
 4. Restart Cursor. You should see `mysql` show up under MCP tools.
@@ -69,7 +69,7 @@ If you only need one connection, skip the config file entirely:
 
 `npx` caches each package spec under `~/.npm/_npx/<hash>/`. If your `mcp.json`
 points at `mysql-mcp-toolkit` with no version tag, npx installs whatever is
-current on the first run and **keeps reusing that cached copy forever** —
+current on the first run and **keeps reusing that cached copy forever**,
 even after new versions ship to npm. That's why the examples above pin
 `@latest`: it forces npx to resolve against the registry on every spawn, so
 new releases get picked up the next time Cursor restarts the server.
@@ -77,11 +77,11 @@ new releases get picked up the next time Cursor restarts the server.
 | You want…                            | Use this in `mcp.json`              | Update behavior                          |
 | ------------------------------------ | ----------------------------------- | ---------------------------------------- |
 | Always run the newest release        | `mysql-mcp-toolkit@latest`          | Auto-updates on Cursor restart           |
-| Reproducible pin to a known version  | `mysql-mcp-toolkit@1.2.0`           | Manual — edit `mcp.json` on each upgrade |
+| Reproducible pin to a known version  | `mysql-mcp-toolkit@1.2.0`           | Manual: edit `mcp.json` on each upgrade |
 | Force-refresh an unpinned cache once | `mysql-mcp-toolkit` (no tag)        | `rm -rf ~/.npm/_npx` before restart      |
 
 After any of these, **restart Cursor** to respawn the MCP child process.
-Verify the upgrade worked by checking the tool list — `table_stats`,
+Verify the upgrade worked by checking the tool list: `table_stats`,
 `list_foreign_keys`, and `search_columns` arrived in 1.3.0, so seeing them
 in Cursor's MCP panel confirms you're current.
 
@@ -92,10 +92,11 @@ in Cursor's MCP panel confirms you're current.
 | `execute_query`     | Run any SQL. Supports `params` for `?` placeholders, `format: objects\|compact`, and `maxResponseBytes` truncation. Bare `SELECT`s and `WITH … SELECT` CTEs get an auto `LIMIT` (max 10,000) and a `MAX_EXECUTION_TIME` optimizer hint so `timeoutMs` cancels the query **server-side** on MySQL 5.7.4+.           |
 | `explain_query`     | `EXPLAIN` a statement without executing it. Supports `format: TRADITIONAL\|JSON\|TREE` and `params`. Safe on read-only connections. Rejects `EXPLAIN ANALYZE` (which executes) and multi-statement input.                                                                                |
 | `list_tables`       | `SHOW TABLES` on the chosen connection.                                                                                                                                                                                                                                                  |
-| `describe_table`    | `DESCRIBE <table>` + `SHOW INDEXES FROM <table>`. Identifier must be 1–64 chars and contain no backticks or control characters (dollar signs, hyphens, and unicode letters are fine).                                                                                                    |
-| `show_create_table` | Returns the full `CREATE TABLE` statement — column types, defaults, indexes, foreign keys, engine, charset. Also works on views (returns `CREATE VIEW`).                                                                                                                                 |
+| `describe_table`    | `DESCRIBE <table>` + `SHOW INDEXES FROM <table>`. Identifier must be 1-64 chars and contain no backticks or control characters (dollar signs, hyphens, and unicode letters are fine).                                                                                                    |
+| `show_create_table` | Returns the full `CREATE TABLE` statement: column types, defaults, indexes, foreign keys, engine, charset. Also works on views (returns `CREATE VIEW`).                                                                                                                                 |
+| `get_schema`        | One-call map of the whole database: every table and view with its columns (name, type, nullability, key) and foreign keys. Scope with `tables`, or pass `includeColumns: false` for a relationship-only overview on large schemas. Output is capped by `maxResponseBytes`.               |
 | `table_stats`       | Per-table size and row statistics from `information_schema.TABLES`: approximate row count, data/index bytes, engine, collation, auto-increment. Optional `table` filter; sorted largest-first.                                                                                           |
-| `list_foreign_keys` | Foreign key relationships in the database, grouped per constraint (multi-column keys included), with update/delete rules. Pass `table` to get both directions — FKs on the table and FKs referencing it.                                                                                 |
+| `list_foreign_keys` | Foreign key relationships in the database, grouped per constraint (multi-column keys included), with update/delete rules. Pass `table` to get both directions: FKs on the table and FKs referencing it.                                                                                 |
 | `search_columns`    | Find columns by name across every table (case-insensitive substring, max 500 matches). Returns table, type, nullability, and key info.                                                                                                                                                   |
 | `list_databases`    | Lists configured connections (host, database, port, read-only flag, ssl flag). Never includes passwords.                                                                                                                                                                                |
 
@@ -110,9 +111,9 @@ statements starting with `SELECT`, `WITH`, `TABLE`, `VALUES`, `SHOW`,
 `EXPLAIN`, `DESCRIBE`/`DESC`, `HELP`, or `CHECKSUM` are accepted, and
 `SELECT`/`WITH` bodies are additionally scanned for embedded writes (CTE
 writes like `WITH x AS (...) DELETE FROM t`, `INTO OUTFILE`/`DUMPFILE`,
-`FOR UPDATE` locks). Everything else — including `LOAD DATA`, `SET`,
+`FOR UPDATE` locks). Everything else, including `LOAD DATA`, `SET`,
 `KILL`, `FLUSH`, `EXPLAIN ANALYZE` (which executes), and transaction
-control — is rejected before any SQL leaves the process. Detection is
+control, is rejected before any SQL leaves the process. Detection is
 comment-, string-literal-, and backtick-identifier-aware, so neither
 `/* DELETE */` comments nor a column named `` `update` `` confuse it.
 
@@ -122,7 +123,7 @@ run user-supplied SQL also accept an optional `timeoutMs` (defaults to the
 connection's `queryTimeoutMs`, then `defaults.queryTimeoutMs`, then `30000`).
 On SELECT, the timeout is enforced server-side via MySQL's
 `MAX_EXECUTION_TIME` optimizer hint. On non-SELECT statements the timeout
-only closes the client socket — the server may keep the query running.
+only closes the client socket; the server may keep the query running.
 
 ### Parameterized queries
 
@@ -143,7 +144,7 @@ interpolating values into the `query` string.
 an agent's context window:
 
 - `format: "compact"` returns `{ columns: [...], rows: [[...]] }` instead
-  of one JSON object per row — much smaller for wide tables.
+  of one JSON object per row, much smaller for wide tables.
 - `maxResponseBytes` (default `1000000`, configurable via
   `defaults.maxResponseBytes`) caps the serialized size of returned rows.
   When exceeded, rows are truncated and the response includes
@@ -153,7 +154,7 @@ an agent's context window:
 
 Each tool call may run on a different pooled connection. Transactions
 (`BEGIN`/`COMMIT`), `SET` statements, `USE`, and temporary tables therefore
-do **not** carry over between calls — don't try to span a transaction
+do **not** carry over between calls; don't try to span a transaction
 across multiple `execute_query` invocations.
 
 `BIGINT` values above 2^53 are returned as strings to avoid silent
@@ -210,17 +211,17 @@ For each configured connection the server exposes a resource:
 | `defaults.queryLimit`           | no       | `100`        | Used when a bare `SELECT` has no top-level `LIMIT`. Hard max `10000` (enforced). |
 | `defaults.queryTimeoutMs`       | no       | `30000`      | Per-query timeout in milliseconds.                 |
 | `defaults.maxResponseBytes`     | no       | `1000000`    | Cap on serialized row bytes per response; rows beyond it are truncated with a notice. Min `1024`. |
-| `connections[].connectionName`  | yes      | —            | Unique, `^[a-zA-Z0-9_-]+$`.                        |
-| `connections[].host`            | yes      | —            |                                                    |
-| `connections[].port`            | no       | `3306`       | Integer 1–65535.                                   |
-| `connections[].user`            | yes      | —            |                                                    |
-| `connections[].password`        | yes      | —            |                                                    |
-| `connections[].database`        | yes      | —            |                                                    |
-| `connections[].readOnly`        | no       | `false`      | When `true`, only read statements run — see [Read-only enforcement](#read-only-enforcement). |
+| `connections[].connectionName`  | yes      | -            | Unique, `^[a-zA-Z0-9_-]+$`.                        |
+| `connections[].host`            | yes      | -            |                                                    |
+| `connections[].port`            | no       | `3306`       | Integer 1-65535.                                   |
+| `connections[].user`            | yes      | -            |                                                    |
+| `connections[].password`        | yes      | -            |                                                    |
+| `connections[].database`        | yes      | -            |                                                    |
+| `connections[].readOnly`        | no       | `false`      | When `true`, only read statements run. See [Read-only enforcement](#read-only-enforcement). |
 | `connections[].connectionLimit` | no       | `5`          | Max connections per pool.                          |
 | `connections[].queryTimeoutMs`  | no       | inherits `defaults.queryTimeoutMs` | Per-connection timeout override. |
 | `connections[].ssl`             | no       | unset        | `true` / `false` / `"Amazon RDS"` / mysql2 SSL object (`{ ca, cert, key, rejectUnauthorized, ... }`). |
-| `connections[].multipleStatements` | no    | `false`      | When `true`, allows multiple `;`-separated statements per query. Enables a class of SQL injection — leave off unless you know you need it. |
+| `connections[].multipleStatements` | no    | `false`      | When `true`, allows multiple `;`-separated statements per query. Enables a class of SQL injection, so leave off unless you know you need it. |
 
 ### Config resolution order
 
@@ -236,10 +237,10 @@ The first source that exists wins:
 
 | Variable                | Required | Default      |
 | ----------------------- | -------- | ------------ |
-| `MYSQL_HOST`            | yes      | —            |
-| `MYSQL_USER`            | yes      | —            |
-| `MYSQL_PASSWORD`        | yes      | —            |
-| `MYSQL_DATABASE`        | yes      | —            |
+| `MYSQL_HOST`            | yes      | -            |
+| `MYSQL_USER`            | yes      | -            |
+| `MYSQL_PASSWORD`        | yes      | -            |
+| `MYSQL_DATABASE`        | yes      | -            |
 | `MYSQL_PORT`            | no       | `3306`       |
 | `MYSQL_CONNECTION_NAME` | no       | `default`    |
 | `MYSQL_READ_ONLY`       | no       | `false` (true when value is `true` or `1`) |
@@ -254,7 +255,7 @@ npx -y mysql-mcp-toolkit init [--output <path>]
 
 Copies the bundled `config.example.json` to the target path. Default target
 is `~/.config/mcp-server-mysql/config.json`. The command refuses to
-overwrite an existing file — pick a different `--output` or delete the
+overwrite an existing file. Pick a different `--output` or delete the
 target first.
 
 ## `--check`

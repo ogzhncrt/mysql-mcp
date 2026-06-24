@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-06-24
+
+### Added
+
+- **`get_schema` tool.** Returns a compact map of the entire database in a
+  single call: every table and view with its columns (name, type,
+  nullability, key) and the foreign keys that connect them. This lets an
+  agent understand an unfamiliar schema and write correct, well-joined SQL
+  without describing tables one at a time. Built for large databases: three
+  `information_schema` scans total (no per-table round trips), an optional
+  `tables` filter, an `includeColumns: false` mode for a relationship-only
+  overview, and the same `maxResponseBytes` cap as `execute_query` (trailing
+  tables are dropped with `truncated: true` when the map does not all fit).
+
+### Changed
+
+- The response size cap used by `execute_query` is now a shared
+  `capBySerializedSize` helper in `lib/json`, reused by `get_schema` so both
+  truncate oversized output identically.
+- Removed em-dash and en-dash characters from source comments, tool
+  descriptions, and docs in favor of plain ASCII punctuation.
+
+### Tests
+
+- 100 tests, up from 93: schema mapping, composite foreign-key grouping,
+  view detection, the `tables` filter, `includeColumns: false`, truncation,
+  and filter validation.
+
 ## [1.3.1] - 2026-06-24
 
 ### Fixed
@@ -17,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   churning. A new `findOuterSelectEnd` parses the CTE list (paren-depth
   aware, `RECURSIVE`/multi-CTE/column-list aware) to locate the main SELECT,
   so the limit and hint now apply. CTE-disguised writes
-  (`WITH x AS (...) INSERT ...`) are still correctly left untouched — and
+  (`WITH x AS (...) INSERT ...`) are still correctly left untouched, and
   remain rejected on read-only connections by the unchanged write guard.
 - **Auto-LIMIT no longer mis-binds in multi-statement batches.** With
   `multipleStatements: true`, `SELECT * FROM a; SELECT * FROM b` got a
@@ -26,7 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   present.
 - **`search_columns` LIKE escaping is mode-independent.** It used a
   backslash escape, which is unreliable across the `NO_BACKSLASH_ESCAPES`
-  SQL mode and the driver's own backslash doubling — a search for
+  SQL mode and the driver's own backslash doubling, so a search for
   `tenant_id` could let `_` act as a wildcard. It now declares an explicit
   `ESCAPE '!'` clause and escapes `!`, `%`, and `_`.
 
@@ -54,7 +82,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   connections. With `multipleStatements: true`, every `;`-separated
   statement is checked, not just the first.
 - **`EXPLAIN ANALYZE` bypass closed.** `explain_query` rejected a leading
-  `ANALYZE` but not `/*c*/ ANALYZE ...` — MySQL allows comments between
+  `ANALYZE` but not `/*c*/ ANALYZE ...`: MySQL allows comments between
   tokens, so the resulting `EXPLAIN /*c*/ ANALYZE ...` actually *executed*
   the statement on 8.0.18+. The check is now comment-aware, and the guard
   also catches `EXPLAIN ANALYZE` / `DESC ANALYZE` passed to
@@ -71,7 +99,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Read-only guard false positives.** The keyword scan matched inside
   backtick-quoted identifiers (the old comment claiming `\b` prevented
-  this was wrong — `\b` matches right after a backtick). These pure reads
+  this was wrong: `\b` matches right after a backtick). These pure reads
   were all rejected on read-only connections and now work:
   ``SELECT `update` FROM audit``, `SHOW CREATE TABLE t`,
   `EXPLAIN UPDATE t SET ...`, `SELECT REPLACE(name,'a','b')`,
@@ -79,7 +107,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Backtick-quoted identifiers are now masked before keyword scanning, and
   the `REPLACE()`/`INSERT()`/`TRUNCATE()` SQL functions are recognized.
 - **Auto-LIMIT was silently swallowed by trailing comments.**
-  `SELECT * FROM t -- note` became `... -- note LIMIT 100` — the LIMIT
+  `SELECT * FROM t -- note` became `... -- note LIMIT 100`: the LIMIT
   landed inside the comment and the query ran unbounded. The limit is now
   appended on its own line after trailing comments/semicolons are removed
   (position-safe: a `;` or `--` inside a trailing string literal is never
@@ -108,7 +136,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   relax approval prompts for safe tools. `execute_query` reports
   `readOnlyHint: true` when every configured connection is read-only.
 - **`format: "compact"` on `execute_query`.** Returns
-  `{ columns: [...], rows: [[...]] }` instead of one object per row —
+  `{ columns: [...], rows: [[...]] }` instead of one object per row,
   much smaller payloads for wide result sets.
 - **Response size cap.** New `maxResponseBytes` arg on `execute_query`
   (default 1,000,000, configurable via `defaults.maxResponseBytes`).
@@ -138,15 +166,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   got no auto-LIMIT and no `MAX_EXECUTION_TIME` hint. Fixed by stripping
   leading comments before the prefix test.
 - **`timeoutMs` actually cancels SELECTs server-side now.** v1.1's
-  `timeoutMs` only closed the client socket — the query kept running on
+  `timeoutMs` only closed the client socket; the query kept running on
   the MySQL server, holding locks and consuming CPU. v1.2 injects a
   `/*+ MAX_EXECUTION_TIME(N) */` optimizer hint into SELECT queries so
   MySQL 5.7.4+ cancels them server-side. Non-SELECT statements still fall
-  back to client-side socket close (documented behavior — MySQL's
+  back to client-side socket close (documented behavior: MySQL's
   `MAX_EXECUTION_TIME` only applies to SELECT).
 - **`describe_table` rejected legitimate identifiers and was vulnerable
   to backtick injection.** Old regex `/^[a-zA-Z0-9_]+$/` blocked
-  `users_v2$archive`, `my-table`, and unicode identifiers — all valid in
+  `users_v2$archive`, `my-table`, and unicode identifiers, all valid in
   MySQL. New regex accepts everything except control chars and backticks
   (up to 64 chars, MySQL's limit). Backticks are now also properly
   escaped (doubled) in the wrapping quotes, as defense-in-depth.
@@ -162,7 +190,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with non-zero status if any connection fails. Useful for validating
   config before wiring the server into an MCP client.
 - **`connections[].multipleStatements` config flag.** Opt-in. Off by
-  default — enabling it lets a single SQL injection vector turn one query
+  default; enabling it lets a single SQL injection vector turn one query
   into many, so it's not for general use.
 
 ### Changed
@@ -204,12 +232,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   managed MySQL (RDS, Aurora, PlanetScale, Cloud SQL, DigitalOcean).
 - **Parameterized queries.** `execute_query` and `explain_query` now
   accept an optional `params: any[]`. Driver-side escaping prevents
-  SQL injection — prefer this over interpolating values into `query`.
+  SQL injection; prefer this over interpolating values into `query`.
 - **`explain_query` tool.** Runs `EXPLAIN [FORMAT=JSON|TREE] <query>`
   without executing the underlying statement. Lets agents inspect the
   plan, index usage, and estimated row counts on read-only production
   connections. Rejects queries that start with `ANALYZE` (which would
-  cause `EXPLAIN ANALYZE` — actually executes on MySQL 8.0+).
+  cause `EXPLAIN ANALYZE`, which actually executes on MySQL 8.0+).
 - **Per-query timeout.** New `defaults.queryTimeoutMs` (default
   `30000`) and per-connection `queryTimeoutMs` override, plus a
   per-call `timeoutMs` arg on `execute_query` and `explain_query`.

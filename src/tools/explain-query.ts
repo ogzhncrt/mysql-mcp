@@ -29,7 +29,7 @@ export const explainQueryTool: ToolDefinition = {
       description:
         `Run EXPLAIN on a SQL statement without executing it. ` +
         `Useful for inspecting the query plan, index usage, and estimated ` +
-        `row counts before running an expensive query — especially on ` +
+        `row counts before running an expensive query, especially on ` +
         `read-only production connections. ` +
         `Configured connections: ${connectionSummary(ctx)}.`,
       annotations: {

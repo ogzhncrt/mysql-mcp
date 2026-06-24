@@ -11,7 +11,7 @@ export interface ParsedCli {
   check?: boolean;
 }
 
-const USAGE = `mcp-server-mysql — Model Context Protocol server for MySQL
+const USAGE = `mcp-server-mysql - Model Context Protocol server for MySQL
 
 Usage:
   mcp-server-mysql [--config <path>]

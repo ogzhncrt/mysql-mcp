@@ -25,7 +25,7 @@ export function isValidIdentifier(name: string): boolean {
 export function assertValidIdentifier(name: string, field: string): void {
   if (!isValidIdentifier(name)) {
     throw new Error(
-      `"${field}" must be a non-empty identifier (1–${MYSQL_IDENT_MAX_LENGTH} chars, ` +
+      `"${field}" must be a non-empty identifier (1-${MYSQL_IDENT_MAX_LENGTH} chars, ` +
         `no backticks or control characters), got "${name}"`,
     );
   }

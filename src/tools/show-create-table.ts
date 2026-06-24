@@ -16,7 +16,7 @@ export const showCreateTableTool: ToolDefinition = {
     return {
       name: "show_create_table",
       description:
-        `Return the full CREATE TABLE statement for a table — including ` +
+        `Return the full CREATE TABLE statement for a table, including ` +
         `column types, defaults, indexes, foreign keys, engine, and charset. ` +
         `More complete than describe_table when reasoning about schema. ` +
         `Configured connections: ${connectionSummary(ctx)}.`,
@@ -32,7 +32,7 @@ export const showCreateTableTool: ToolDefinition = {
           table: {
             type: "string",
             description:
-              "Table name. 1–64 chars, no backticks or control characters.",
+              "Table name. 1-64 chars, no backticks or control characters.",
           },
           connection: connectionEnum(ctx),
         },

@@ -12,7 +12,7 @@ export interface ToolContext {
 
 /**
  * MCP tool annotations (spec 2025-03-26). Hints for clients about tool
- * behavior — e.g. Cursor and Claude use readOnlyHint to relax approval
+ * behavior, e.g. Cursor and Claude use readOnlyHint to relax approval
  * prompts for safe tools.
  */
 export interface ToolAnnotations {

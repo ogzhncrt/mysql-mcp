@@ -34,7 +34,7 @@ export const tableStatsTool: ToolDefinition = {
         `Size and row-count statistics for tables in the selected database, ` +
         `from information_schema.TABLES: approximate row count, data and ` +
         `index size in bytes, engine, collation, auto-increment value, ` +
-        `create/update time. Row counts are estimates for InnoDB — use ` +
+        `create/update time. Row counts are estimates for InnoDB, so use ` +
         `SELECT COUNT(*) when you need the exact number. ` +
         `Configured connections: ${connectionSummary(ctx)}.`,
       annotations: {

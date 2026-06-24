@@ -21,7 +21,7 @@ import {
   resolveConnectionName,
 } from "../lib/connections.js";
 import type { ToolDefinition } from "../lib/context.js";
-import { jsonStringify } from "../lib/json.js";
+import { capBySerializedSize } from "../lib/json.js";
 
 const FORMATS = ["objects", "compact"] as const;
 type RowFormat = (typeof FORMATS)[number];
@@ -38,8 +38,8 @@ export const executeQueryTool: ToolDefinition = {
         `Configured connections: ${connectionSummary(ctx)}. ` +
         `Read-only connections allow only read statements ` +
         `(SELECT/SHOW/EXPLAIN/DESCRIBE/WITH...SELECT/TABLE/VALUES/HELP/CHECKSUM); ` +
-        `everything else — including CTE-disguised writes, LOAD DATA, SET, ` +
-        `KILL, transaction control, and SELECT ... INTO OUTFILE — is rejected. ` +
+        `everything else, including CTE-disguised writes, LOAD DATA, SET, ` +
+        `KILL, transaction control, and SELECT ... INTO OUTFILE, is rejected. ` +
         `Bare SELECTs and WITH...SELECT CTEs are auto-LIMITed ` +
         `(default ${ctx.defaultQueryLimit}, hard max ${MAX_QUERY_LIMIT}). ` +
         `They also get a MAX_EXECUTION_TIME optimizer hint so the ` +
@@ -91,7 +91,7 @@ export const executeQueryTool: ToolDefinition = {
             enum: [...FORMATS],
             description:
               `Row output format. "objects" (default) returns one JSON object ` +
-              `per row. "compact" returns { columns: [...], rows: [[...]] } — ` +
+              `per row. "compact" returns { columns: [...], rows: [[...]] }, ` +
               `much smaller for wide result sets; prefer it for large reads.`,
             default: "objects",
           },
@@ -177,7 +177,7 @@ function maybeAppendLimit(query: string, limit: number): string {
 
 /**
  * Injects /*+ MAX_EXECUTION_TIME(N) *\/ right after the top-level SELECT
- * keyword — for both bare `SELECT ...` and `WITH ... SELECT ...` CTEs whose
+ * keyword, for both bare `SELECT ...` and `WITH ... SELECT ...` CTEs whose
  * main statement is a SELECT. Returns the query unchanged for writes and
  * non-SELECT reads.
  *
@@ -310,24 +310,6 @@ function resolveColumns(
     return fields.map((f) => f.name);
   }
   return rows.length > 0 ? Object.keys(rows[0]) : [];
-}
-
-/**
- * Keeps rows in order until their cumulative serialized size exceeds the
- * budget. Approximate by design — measures rows only, not the envelope.
- */
-function capBySerializedSize(
-  rows: unknown[],
-  maxBytes: number,
-): { kept: unknown[]; truncated: boolean } {
-  let used = 0;
-  for (let i = 0; i < rows.length; i++) {
-    used += jsonStringify(rows[i]).length + 1;
-    if (used > maxBytes) {
-      return { kept: rows.slice(0, i), truncated: true };
-    }
-  }
-  return { kept: rows, truncated: false };
 }
 
 function detectQueryType(sql: string): string {

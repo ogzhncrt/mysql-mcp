@@ -24,7 +24,7 @@ export async function runCheck(config: AppConfig): Promise<boolean> {
     } catch (err) {
       const ms = Date.now() - started;
       const msg = err instanceof Error ? err.message : String(err);
-      process.stderr.write(`${label}: FAIL (${ms}ms) — ${msg}\n`);
+      process.stderr.write(`${label}: FAIL (${ms}ms): ${msg}\n`);
       allOk = false;
     }
   }

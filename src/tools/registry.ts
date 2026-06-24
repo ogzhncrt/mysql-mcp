@@ -17,6 +17,7 @@ import { explainQueryTool } from "./explain-query.js";
 import { listTablesTool } from "./list-tables.js";
 import { describeTableTool } from "./describe-table.js";
 import { showCreateTableTool } from "./show-create-table.js";
+import { getSchemaTool } from "./get-schema.js";
 import { listDatabasesTool } from "./list-databases.js";
 import { tableStatsTool } from "./table-stats.js";
 import { listForeignKeysTool } from "./list-foreign-keys.js";
@@ -31,6 +32,7 @@ const TOOLS: ToolDefinition[] = [
   listTablesTool,
   describeTableTool,
   showCreateTableTool,
+  getSchemaTool,
   listDatabasesTool,
   tableStatsTool,
   listForeignKeysTool,

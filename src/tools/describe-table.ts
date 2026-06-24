@@ -30,7 +30,7 @@ export const describeTableTool: ToolDefinition = {
           table: {
             type: "string",
             description:
-              "Table name. 1–64 chars, no backticks or control characters. " +
+              "Table name. 1-64 chars, no backticks or control characters. " +
               "Identifiers with dollar signs, hyphens, and unicode letters are OK.",
           },
           connection: connectionEnum(ctx),

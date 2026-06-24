@@ -25,7 +25,7 @@ const EXPLAIN_STARTERS = new Set(["EXPLAIN", "DESCRIBE", "DESC"]);
 
 /**
  * Write verbs that can be smuggled into a statement that *starts* with a
- * read keyword — e.g. `WITH x AS (...) DELETE FROM t` or
+ * read keyword, e.g. `WITH x AS (...) DELETE FROM t` or
  * `SELECT ... FOR UPDATE`. Notes:
  *   - INSERT uses a negative lookahead so the INSERT(str,pos,len,newstr)
  *     string function stays usable; an INSERT *statement* is never
@@ -47,7 +47,7 @@ const INTO_FILE_REGEX = /\bINTO\s+(?:OUTFILE|DUMPFILE)\b/i;
  * character positions in the output map 1:1 to the input:
  *   - comments (block, `--`, `#`) become spaces
  *   - string literals ('...', "...") and backtick-quoted identifiers
- *     become runs of "?" — non-space so trailing-trim logic never cuts
+ *     become runs of "?", non-space so trailing-trim logic never cuts
  *     into a literal, non-word so \b keyword regexes can't match inside
  *
  * Masking backtick identifiers is what prevents false positives like
@@ -179,9 +179,9 @@ export function isWriteQuery(sql: string): boolean {
 
 /**
  * True iff the SQL's first keyword (after stripping leading comments and
- * whitespace) is SELECT. CTE queries (`WITH ... SELECT ...`) return false —
- * detecting them correctly requires tracking parenthesis depth across the
- * WITH clause, which we don't do.
+ * whitespace) is SELECT. CTE queries (`WITH ... SELECT ...`) return false.
+ * Detecting them correctly requires tracking parenthesis depth across the
+ * WITH clause, which this helper does not do.
  */
 export function isSelectQuery(sql: string): boolean {
   const stripped = stripCommentsAndStrings(sql);
@@ -220,7 +220,7 @@ function matchParen(masked: string, open: number): number {
 /**
  * Starting at the beginning of one CTE definition, find the "(" that opens
  * its `AS (...)` subquery, or -1. Depth tracking skips an optional column
- * list — `cte (a, b) AS (...)` — so we land on the subquery paren.
+ * list, as in `cte (a, b) AS (...)`, so we land on the subquery paren.
  */
 function findCteSubqueryParen(masked: string, start: number): number {
   let depth = 0;
@@ -248,9 +248,9 @@ function findCteSubqueryParen(masked: string, start: number): number {
 }
 
 /**
- * For a query that produces rows through a top-level SELECT — either a
+ * For a query that produces rows through a top-level SELECT (either a
  * bare `SELECT ...` or a `WITH ... SELECT ...` CTE whose *main* statement
- * is a SELECT — returns the index in `sql` immediately after that SELECT
+ * is a SELECT), returns the index in `sql` immediately after that SELECT
  * keyword, where an optimizer hint can be injected. Returns null for
  * writes, CTE-disguised writes (`WITH x AS (...) INSERT ...`), and
  * non-SELECT reads (TABLE/VALUES/SHOW/...).
@@ -298,7 +298,7 @@ const IDENT_CHAR = /[A-Za-z0-9_$]/;
  * True iff the SQL contains a LIMIT clause at parenthesis depth 0.
  * Comments and string literals are masked first, so `-- LIMIT 10` and
  * `WHERE note = 'add LIMIT here'` don't trigger false positives, and a
- * LIMIT inside a subquery — `SELECT * FROM (SELECT 1 LIMIT 5) x` — no
+ * LIMIT inside a subquery, like `SELECT * FROM (SELECT 1 LIMIT 5) x`, no
  * longer suppresses the outer auto-LIMIT.
  */
 export function containsTopLevelLimit(sql: string): boolean {

@@ -5,6 +5,8 @@ import {
   ReadOnlyViolationError,
   assertCanExecute,
   containsTopLevelLimit,
+  findOuterSelectEnd,
+  isMultiStatement,
   isSelectQuery,
   isWriteQuery,
   stripCommentsAndStrings,
@@ -187,6 +189,48 @@ describe("isSelectQuery", () => {
     expect(isSelectQuery("  select * from t")).toBe(true);
     expect(isSelectQuery("/* hint */ SELECT 1")).toBe(true);
     expect(isSelectQuery("INSERT INTO t VALUES (1)")).toBe(false);
+  });
+});
+
+describe("findOuterSelectEnd", () => {
+  it("points just past a leading SELECT", () => {
+    expect(findOuterSelectEnd("SELECT 1")).toBe(6);
+    expect(findOuterSelectEnd("  /* c */ select 1")).toBe(16);
+  });
+
+  it("points past the main SELECT of a CTE", () => {
+    const sql = "WITH x AS (SELECT 1) SELECT * FROM x";
+    expect(findOuterSelectEnd(sql)).toBe(sql.indexOf("SELECT * FROM x") + 6);
+  });
+
+  it("handles RECURSIVE, multi-CTE, and column lists", () => {
+    const sql =
+      "WITH RECURSIVE a AS (SELECT 1 UNION SELECT 2), b (n) AS (SELECT 3) SELECT * FROM a, b";
+    expect(findOuterSelectEnd(sql)).toBe(sql.lastIndexOf("SELECT") + 6);
+  });
+
+  it("returns null for writes, CTE writes, and non-SELECT reads", () => {
+    expect(findOuterSelectEnd("INSERT INTO t VALUES (1)")).toBeNull();
+    expect(
+      findOuterSelectEnd("WITH x AS (SELECT 1) INSERT INTO logs SELECT id FROM x"),
+    ).toBeNull();
+    expect(findOuterSelectEnd("SHOW TABLES")).toBeNull();
+    expect(findOuterSelectEnd("TABLE users")).toBeNull();
+    expect(findOuterSelectEnd("SELECTFOO * FROM x")).toBeNull();
+  });
+});
+
+describe("isMultiStatement", () => {
+  it("is false for a single statement (with trailing noise)", () => {
+    expect(isMultiStatement("SELECT 1")).toBe(false);
+    expect(isMultiStatement("SELECT 1;")).toBe(false);
+    expect(isMultiStatement("SELECT 1; -- done")).toBe(false);
+    expect(isMultiStatement("SELECT ';' AS s")).toBe(false);
+  });
+
+  it("is true when more than one statement is present", () => {
+    expect(isMultiStatement("SELECT 1; SELECT 2")).toBe(true);
+    expect(isMultiStatement("SELECT 1; DELETE FROM t")).toBe(true);
   });
 });
 

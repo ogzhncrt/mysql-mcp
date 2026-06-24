@@ -21,7 +21,7 @@ SELECT
   EXTRA
 FROM information_schema.COLUMNS
 WHERE TABLE_SCHEMA = DATABASE()
-  AND COLUMN_NAME LIKE ?
+  AND COLUMN_NAME LIKE ? ESCAPE '!'
 ORDER BY TABLE_NAME, ORDINAL_POSITION
 LIMIT ${MAX_MATCHES}
 `.trim();
@@ -68,7 +68,10 @@ export const searchColumnsTool: ToolDefinition = {
     const pool = ctx.pools.getPool(connectionName);
 
     // Escape LIKE wildcards so the user's pattern is a literal substring.
-    const escaped = pattern.replace(/([\\%_])/g, "\\$1");
+    // Uses "!" as the ESCAPE character (declared in SEARCH_SQL) rather than
+    // the default backslash: backslash escaping is unreliable across the
+    // NO_BACKSLASH_ESCAPES SQL mode and the driver's own backslash doubling.
+    const escaped = pattern.replace(/([!%_])/g, "!$1");
 
     const [rows] = await pool.query<RowDataPacket[]>({
       sql: SEARCH_SQL,

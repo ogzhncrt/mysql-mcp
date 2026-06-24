@@ -4,7 +4,8 @@ import { MAX_QUERY_LIMIT } from "../config/types.js";
 import {
   assertCanExecute,
   containsTopLevelLimit,
-  isSelectQuery,
+  findOuterSelectEnd,
+  isMultiStatement,
   stripCommentsAndStrings,
   trimTrailingNoise,
 } from "../db/query-guard.js";
@@ -39,9 +40,9 @@ export const executeQueryTool: ToolDefinition = {
         `(SELECT/SHOW/EXPLAIN/DESCRIBE/WITH...SELECT/TABLE/VALUES/HELP/CHECKSUM); ` +
         `everything else — including CTE-disguised writes, LOAD DATA, SET, ` +
         `KILL, transaction control, and SELECT ... INTO OUTFILE — is rejected. ` +
-        `Bare SELECTs are auto-LIMITed (default ${ctx.defaultQueryLimit}, ` +
-        `hard max ${MAX_QUERY_LIMIT}). ` +
-        `SELECTs also get a MAX_EXECUTION_TIME optimizer hint so the ` +
+        `Bare SELECTs and WITH...SELECT CTEs are auto-LIMITed ` +
+        `(default ${ctx.defaultQueryLimit}, hard max ${MAX_QUERY_LIMIT}). ` +
+        `They also get a MAX_EXECUTION_TIME optimizer hint so the ` +
         `timeout actually cancels the query server-side on MySQL 5.7.4+. ` +
         `Pass "params" to use parameterized queries with ? placeholders. ` +
         `Note: each call may run on a different pooled connection, so ` +
@@ -161,21 +162,24 @@ function resolveFormat(value: unknown): RowFormat {
 }
 
 /**
- * Appends `LIMIT n` to bare SELECTs. The limit goes on its own line after
- * trailing comments/semicolons are removed, so a query ending in
- * `-- note` can't swallow the LIMIT into the comment (1.2 bug).
+ * Appends `LIMIT n` to bare SELECTs and `WITH ... SELECT` CTEs. The limit
+ * goes on its own line after trailing comments/semicolons are removed, so a
+ * query ending in `-- note` can't swallow the LIMIT into the comment (1.2
+ * bug). Multi-statement batches are skipped: a trailing LIMIT would bind
+ * only to the last statement and leave earlier SELECTs uncapped.
  */
 function maybeAppendLimit(query: string, limit: number): string {
-  if (!isSelectQuery(query)) return query;
+  if (findOuterSelectEnd(query) === null) return query;
+  if (isMultiStatement(query)) return query;
   if (containsTopLevelLimit(query)) return query;
   return `${trimTrailingNoise(query)}\nLIMIT ${limit}`;
 }
 
 /**
- * Injects /*+ MAX_EXECUTION_TIME(N) *\/ right after the leading SELECT
- * keyword if the query is a top-level SELECT. Returns the query unchanged
- * otherwise. CTE queries (WITH ... SELECT) are not handled — parsing them
- * correctly requires tracking paren depth.
+ * Injects /*+ MAX_EXECUTION_TIME(N) *\/ right after the top-level SELECT
+ * keyword — for both bare `SELECT ...` and `WITH ... SELECT ...` CTEs whose
+ * main statement is a SELECT. Returns the query unchanged for writes and
+ * non-SELECT reads.
  *
  * The hint is a no-op on MySQL < 5.7.4 and MariaDB (just a comment), so
  * injecting it is safe even when we don't know the server version.
@@ -184,45 +188,9 @@ export function injectMaxExecutionTime(
   sql: string,
   timeoutMs: number,
 ): string {
-  const pos = findLeadingSelectEnd(sql);
+  const pos = findOuterSelectEnd(sql);
   if (pos === null) return sql;
   return `${sql.slice(0, pos)} /*+ MAX_EXECUTION_TIME(${timeoutMs}) */${sql.slice(pos)}`;
-}
-
-function findLeadingSelectEnd(sql: string): number | null {
-  const len = sql.length;
-  let i = 0;
-  while (i < len) {
-    const c = sql[i];
-    if (c === " " || c === "\t" || c === "\n" || c === "\r") {
-      i++;
-      continue;
-    }
-    if (c === "/" && sql[i + 1] === "*") {
-      const end = sql.indexOf("*/", i + 2);
-      if (end === -1) return null;
-      i = end + 2;
-      continue;
-    }
-    if (c === "-" && sql[i + 1] === "-") {
-      const end = sql.indexOf("\n", i + 2);
-      i = end === -1 ? len : end + 1;
-      continue;
-    }
-    if (c === "#") {
-      const end = sql.indexOf("\n", i + 1);
-      i = end === -1 ? len : end + 1;
-      continue;
-    }
-    if (sql.slice(i, i + 6).toUpperCase() === "SELECT") {
-      const after = sql[i + 6];
-      if (after === undefined || !/[A-Za-z0-9_]/.test(after)) {
-        return i + 6;
-      }
-    }
-    return null;
-  }
-  return null;
 }
 
 interface BuildResponseInput {

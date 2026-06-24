@@ -117,6 +117,16 @@ export function splitStatements(maskedSql: string): string[] {
   return maskedSql.split(";");
 }
 
+/**
+ * True iff the SQL contains more than one non-empty statement. Only
+ * meaningful when `multipleStatements` is enabled; used to keep the
+ * auto-LIMIT from binding to just the last statement of a batch.
+ */
+export function isMultiStatement(sql: string): boolean {
+  const masked = stripCommentsAndStrings(sql);
+  return splitStatements(masked).filter((s) => s.trim() !== "").length > 1;
+}
+
 function firstKeyword(maskedStmt: string): string | null {
   const match = /^[\s(]*([A-Za-z_]+)/.exec(maskedStmt);
   return match ? match[1].toUpperCase() : null;
@@ -177,6 +187,109 @@ export function isSelectQuery(sql: string): boolean {
   const stripped = stripCommentsAndStrings(sql);
   const trimmed = stripped.trimStart();
   return /^SELECT(\s|\(|$)/i.test(trimmed);
+}
+
+/** Reads the keyword/identifier at `i`, or null if `i` is not on a word. */
+function readWord(
+  masked: string,
+  i: number,
+): { word: string; end: number } | null {
+  const match = /^[A-Za-z_][A-Za-z0-9_$]*/.exec(masked.slice(i));
+  if (!match) return null;
+  return { word: match[0].toUpperCase(), end: i + match[0].length };
+}
+
+function skipWhitespace(masked: string, i: number): number {
+  while (i < masked.length && /\s/.test(masked[i])) i++;
+  return i;
+}
+
+/** Index just past the ")" matching the "(" at `open`, or -1. */
+function matchParen(masked: string, open: number): number {
+  let depth = 0;
+  for (let i = open; i < masked.length; i++) {
+    if (masked[i] === "(") depth++;
+    else if (masked[i] === ")") {
+      depth -= 1;
+      if (depth === 0) return i + 1;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Starting at the beginning of one CTE definition, find the "(" that opens
+ * its `AS (...)` subquery, or -1. Depth tracking skips an optional column
+ * list — `cte (a, b) AS (...)` — so we land on the subquery paren.
+ */
+function findCteSubqueryParen(masked: string, start: number): number {
+  let depth = 0;
+  let i = start;
+  while (i < masked.length) {
+    const c = masked[i];
+    if (c === "(") {
+      depth++;
+      i++;
+    } else if (c === ")") {
+      depth = Math.max(0, depth - 1);
+      i++;
+    } else if (depth === 0 && /[A-Za-z_]/.test(c)) {
+      const word = readWord(masked, i);
+      if (word && word.word === "AS") {
+        const j = skipWhitespace(masked, word.end);
+        return masked[j] === "(" ? j : -1;
+      }
+      i = word ? word.end : i + 1;
+    } else {
+      i++;
+    }
+  }
+  return -1;
+}
+
+/**
+ * For a query that produces rows through a top-level SELECT — either a
+ * bare `SELECT ...` or a `WITH ... SELECT ...` CTE whose *main* statement
+ * is a SELECT — returns the index in `sql` immediately after that SELECT
+ * keyword, where an optimizer hint can be injected. Returns null for
+ * writes, CTE-disguised writes (`WITH x AS (...) INSERT ...`), and
+ * non-SELECT reads (TABLE/VALUES/SHOW/...).
+ *
+ * Runs on masked SQL so comments, string literals, and backtick
+ * identifiers can't fool keyword detection; masking preserves length, so
+ * the returned index maps 1:1 onto the original string.
+ */
+export function findOuterSelectEnd(sql: string): number | null {
+  const masked = stripCommentsAndStrings(sql);
+  let i = skipWhitespace(masked, 0);
+
+  const first = readWord(masked, i);
+  if (!first) return null;
+  if (first.word === "SELECT") return first.end;
+  if (first.word !== "WITH") return null;
+
+  i = skipWhitespace(masked, first.end);
+  const recursive = readWord(masked, i);
+  if (recursive && recursive.word === "RECURSIVE") {
+    i = skipWhitespace(masked, recursive.end);
+  }
+
+  // Walk the comma-separated CTE definitions to the start of the main query.
+  for (;;) {
+    const open = findCteSubqueryParen(masked, i);
+    if (open === -1) return null;
+    const close = matchParen(masked, open);
+    if (close === -1) return null;
+    i = skipWhitespace(masked, close);
+    if (masked[i] === ",") {
+      i = skipWhitespace(masked, i + 1);
+      continue;
+    }
+    break;
+  }
+
+  const main = readWord(masked, i);
+  return main && main.word === "SELECT" ? main.end : null;
 }
 
 const IDENT_CHAR = /[A-Za-z0-9_$]/;

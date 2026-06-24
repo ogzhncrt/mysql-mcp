@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-06-24
+
+### Fixed
+
+- **`WITH ... SELECT` CTEs now get the auto-LIMIT and the server-side
+  timeout.** Previously only bare `SELECT`s were auto-LIMITed and given the
+  `MAX_EXECUTION_TIME` optimizer hint; a CTE like
+  `WITH recent AS (...) SELECT * FROM recent` ran **unbounded** and its
+  `timeoutMs` degraded to a client-side socket close while the server kept
+  churning. A new `findOuterSelectEnd` parses the CTE list (paren-depth
+  aware, `RECURSIVE`/multi-CTE/column-list aware) to locate the main SELECT,
+  so the limit and hint now apply. CTE-disguised writes
+  (`WITH x AS (...) INSERT ...`) are still correctly left untouched — and
+  remain rejected on read-only connections by the unchanged write guard.
+- **Auto-LIMIT no longer mis-binds in multi-statement batches.** With
+  `multipleStatements: true`, `SELECT * FROM a; SELECT * FROM b` got a
+  trailing `LIMIT` that bound only to the *last* statement, leaving the
+  first uncapped. Auto-LIMIT is now skipped when more than one statement is
+  present.
+- **`search_columns` LIKE escaping is mode-independent.** It used a
+  backslash escape, which is unreliable across the `NO_BACKSLASH_ESCAPES`
+  SQL mode and the driver's own backslash doubling — a search for
+  `tenant_id` could let `_` act as a wildcard. It now declares an explicit
+  `ESCAPE '!'` clause and escapes `!`, `%`, and `_`.
+
+### Tests
+
+- 93 tests, up from 83: CTE limit/hint injection, RECURSIVE/multi-CTE
+  parsing, CTE-write rejection, multi-statement auto-LIMIT skip, and the
+  explicit LIKE ESCAPE behavior.
+
 ## [1.3.0] - 2026-06-12
 
 ### Security

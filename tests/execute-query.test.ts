@@ -91,6 +91,32 @@ describe("execute_query", () => {
     expect(ctx.pools.pool.queries[0].sql).toMatch(/\nLIMIT 100$/);
   });
 
+  it("auto-appends LIMIT and the timeout hint to a WITH...SELECT CTE", async () => {
+    const ctx = buildTestContext({ defaultQueryTimeoutMs: 4000 });
+    ctx.pools.pool.pushResponse([]);
+
+    await executeQueryTool.execute(
+      { query: "WITH recent AS (SELECT id FROM users) SELECT * FROM recent" },
+      ctx,
+    );
+
+    const sql = ctx.pools.pool.queries[0].sql;
+    expect(sql).toMatch(/\nLIMIT 100$/);
+    expect(sql).toContain("/*+ MAX_EXECUTION_TIME(4000) */");
+  });
+
+  it("does NOT auto-append LIMIT across a multi-statement batch", async () => {
+    const ctx = buildTestContext();
+    ctx.pools.pool.pushResponse([]);
+
+    await executeQueryTool.execute(
+      { query: "SELECT * FROM a; SELECT * FROM b" },
+      ctx,
+    );
+
+    expect(ctx.pools.pool.queries[0].sql).not.toMatch(/LIMIT 100/);
+  });
+
   it("injects MAX_EXECUTION_TIME hint on SELECT", async () => {
     const ctx = buildTestContext({ defaultQueryTimeoutMs: 5000 });
     ctx.pools.pool.pushResponse([]);
@@ -281,8 +307,27 @@ describe("injectMaxExecutionTime", () => {
     );
   });
 
-  it("returns query unchanged for CTE queries (known limitation)", () => {
-    const sql = "WITH x AS (SELECT 1) SELECT * FROM x";
+  it("injects into the main SELECT of a WITH...SELECT CTE", () => {
+    expect(
+      injectMaxExecutionTime("WITH x AS (SELECT 1) SELECT * FROM x", 3000),
+    ).toBe(
+      "WITH x AS (SELECT 1) SELECT /*+ MAX_EXECUTION_TIME(3000) */ * FROM x",
+    );
+  });
+
+  it("injects into the main SELECT of a RECURSIVE / multi-CTE query", () => {
+    expect(
+      injectMaxExecutionTime(
+        "WITH RECURSIVE a AS (SELECT 1 UNION SELECT 2), b (n) AS (SELECT 3) SELECT * FROM a, b",
+        100,
+      ),
+    ).toBe(
+      "WITH RECURSIVE a AS (SELECT 1 UNION SELECT 2), b (n) AS (SELECT 3) SELECT /*+ MAX_EXECUTION_TIME(100) */ * FROM a, b",
+    );
+  });
+
+  it("leaves CTE-disguised writes unchanged (main statement is not SELECT)", () => {
+    const sql = "WITH x AS (SELECT 1) INSERT INTO logs SELECT id FROM x";
     expect(injectMaxExecutionTime(sql, 3000)).toBe(sql);
   });
 });

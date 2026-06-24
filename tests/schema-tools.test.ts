@@ -147,13 +147,14 @@ describe("search_columns", () => {
     );
   });
 
-  it("escapes LIKE wildcards in the pattern", async () => {
+  it("escapes LIKE wildcards in the pattern with an explicit ESCAPE char", async () => {
     const ctx = buildTestContext();
     ctx.pools.pool.pushResponse([]);
 
-    await searchColumnsTool.execute({ pattern: "100%_done" }, ctx);
+    await searchColumnsTool.execute({ pattern: "100%_done!" }, ctx);
 
-    expect(ctx.pools.pool.queries[0].values).toEqual(["%100\\%\\_done%"]);
+    expect(ctx.pools.pool.queries[0].sql).toContain("ESCAPE '!'");
+    expect(ctx.pools.pool.queries[0].values).toEqual(["%100!%!_done!!%"]);
   });
 
   it("requires a pattern", async () => {

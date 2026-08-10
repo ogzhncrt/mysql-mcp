@@ -5,6 +5,64 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-08-10
+
+### Security
+
+- **Read-only guard no longer bypassed by MySQL executable comments.**
+  MySQL *executes* the contents of `/*! ... */` and versioned
+  `/*!50000 ... */` comments, but the guard masked them like ordinary
+  comments, so `/*! DELETE FROM users */` and
+  `SELECT 1 /*!50000 INTO OUTFILE '/tmp/x' */` passed the read-only check
+  and ran on the server. The masker now blanks only the comment markers and
+  keeps the inner SQL visible, so the write/keyword scan sees the real
+  statement. No `multipleStatements` needed to trigger the old hole.
+- **`--` is treated as a comment only when followed by whitespace/EOL**, as
+  MySQL requires. Previously `SELECT 1--1;DELETE FROM t` masked the trailing
+  `DELETE` away and (with `multipleStatements` enabled) the server ran it.
+
+### Added
+
+- **Multi-database support.** `list_tables`, `get_schema`, `table_stats`,
+  `search_columns`, `list_foreign_keys`, `describe_table`, `show_create_table`,
+  and the new `sample_rows` accept an optional `database` argument to inspect
+  another schema on the same server. `information_schema` queries bind the
+  schema as a parameter; identifier-based statements use a backtick-escaped
+  `` `db`.`table` `` reference.
+- **`list_schemas` tool.** `SHOW DATABASES`, so an agent can discover which
+  schemas exist before targeting one with `database`.
+- **`sample_rows` tool.** `SELECT * FROM <table> LIMIT n` (default 10, max
+  1000) to preview real data without hand-writing SQL. Read-only-safe.
+- **`server_info` tool.** Read-only diagnostics: server version, curated
+  global variables, key status counters, and (by default) the current
+  process list. Answers "what version?" and "why is it busy?".
+- **`mysql://` connection URLs.** Set `MYSQL_URL` (e.g.
+  `mysql://user:pass@host:3306/db`) instead of the four discrete `MYSQL_*`
+  vars. User/password/database are URL-decoded; `?ssl=true|false|amazon-rds`
+  and the `mysqls://` scheme select TLS (`MYSQL_SSL` still overrides).
+- **Pagination for `execute_query`.** An optional `offset` produces
+  `LIMIT n OFFSET m` when the server adds the LIMIT (bare SELECT /
+  `WITH...SELECT` without an explicit LIMIT).
+
+### Changed
+
+- **`execute_query` result labeling.** `queryType` now resolves the *main*
+  statement verb, so `WITH x AS (...) INSERT ...` reports `INSERT` (not
+  `WITH`), and `REPLACE` gets its own affected-rows message.
+- **Per-query timeouts are capped** at `MAX_QUERY_TIMEOUT_MS` (1 hour) in
+  `execute_query` and `explain_query`, so a single call can't pin a pooled
+  connection open indefinitely.
+- **Pool queue is bounded** by default (`queueLimit: 20`, configurable per
+  connection) instead of unbounded, so a burst of calls fails fast rather
+  than piling up without limit.
+
+### Tests
+
+- 126 tests, up from 100: executable-comment and `--` bypass regressions,
+  `mainStatementKeyword`, `MYSQL_URL` parsing, `offset` pagination,
+  `REPLACE`/CTE result labeling, the timeout cap, multi-database scoping,
+  and the new `list_schemas`, `sample_rows`, and `server_info` tools.
+
 ## [1.4.0] - 2026-06-24
 
 ### Added

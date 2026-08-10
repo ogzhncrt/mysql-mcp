@@ -109,6 +109,54 @@ describe("loadConfig", () => {
     });
   });
 
+  it("builds a connection from MYSQL_URL", () => {
+    const { config, source } = loadConfig({
+      env: {
+        MYSQL_URL: "mysql://root:s%40cret@db.example.com:3307/myapp",
+        MYSQL_READ_ONLY: "true",
+      },
+      cwd: ISOLATED_CWD,
+      homedir: ISOLATED_HOME,
+    });
+
+    expect(source).toEqual({ kind: "env" });
+    expect(config.connections).toHaveLength(1);
+    expect(config.connections[0]).toMatchObject({
+      host: "db.example.com",
+      port: 3307,
+      user: "root",
+      password: "s@cret", // %40 decoded
+      database: "myapp",
+      readOnly: true,
+    });
+  });
+
+  it("honors ssl from the URL query and mysqls scheme", () => {
+    const fromQuery = loadConfig({
+      env: { MYSQL_URL: "mysql://u:p@h/db?ssl=amazon-rds" },
+      cwd: ISOLATED_CWD,
+      homedir: ISOLATED_HOME,
+    });
+    expect(fromQuery.config.connections[0].ssl).toBe("Amazon RDS");
+
+    const fromScheme = loadConfig({
+      env: { MYSQL_URL: "mysqls://u:p@h/db" },
+      cwd: ISOLATED_CWD,
+      homedir: ISOLATED_HOME,
+    });
+    expect(fromScheme.config.connections[0].ssl).toBe(true);
+  });
+
+  it("rejects a MYSQL_URL missing the database", () => {
+    expect(() =>
+      loadConfig({
+        env: { MYSQL_URL: "mysql://root:secret@db.example.com:3306" },
+        cwd: ISOLATED_CWD,
+        homedir: ISOLATED_HOME,
+      }),
+    ).toThrowError(/MYSQL_URL/);
+  });
+
   it("throws ConfigError when no source is available", () => {
     expect(() =>
       loadConfig({

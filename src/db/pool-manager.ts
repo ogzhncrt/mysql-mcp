@@ -1,7 +1,11 @@
 import mysql, { type Pool, type PoolOptions } from "mysql2/promise";
 
 import type { ConnectionConfig } from "../config/types.js";
-import { DEFAULT_CONNECTION_LIMIT, DEFAULT_PORT } from "../config/types.js";
+import {
+  DEFAULT_CONNECTION_LIMIT,
+  DEFAULT_PORT,
+  DEFAULT_QUEUE_LIMIT,
+} from "../config/types.js";
 
 export class PoolManager {
   private readonly configs: Map<string, ConnectionConfig>;
@@ -42,7 +46,7 @@ export class PoolManager {
       database: config.database,
       waitForConnections: true,
       connectionLimit: config.connectionLimit ?? DEFAULT_CONNECTION_LIMIT,
-      queueLimit: 0,
+      queueLimit: config.queueLimit ?? DEFAULT_QUEUE_LIMIT,
       enableKeepAlive: true,
       keepAliveInitialDelay: 0,
       multipleStatements: config.multipleStatements === true,

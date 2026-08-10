@@ -65,6 +65,29 @@ If you only need one connection, skip the config file entirely:
 }
 ```
 
+Or supply a single connection URL instead of the four discrete variables:
+
+```json
+{
+  "mcpServers": {
+    "mysql": {
+      "command": "npx",
+      "args": ["-y", "mysql-mcp-toolkit@latest"],
+      "env": {
+        "MYSQL_URL": "mysql://root:secret@127.0.0.1:3306/myapp",
+        "MYSQL_READ_ONLY": "true"
+      }
+    }
+  }
+}
+```
+
+User, password, and database in the URL are URL-decoded, so reserved
+characters (e.g. `@` or `/` in a password) can be percent-encoded. Add
+`?ssl=true|false|amazon-rds` or use the `mysqls://` scheme to enable TLS
+(`MYSQL_SSL` still overrides). `MYSQL_CONNECTION_NAME`, `MYSQL_READ_ONLY`,
+and `MYSQL_QUERY_TIMEOUT_MS` apply to either form.
+
 ## Updating
 
 `npx` caches each package spec under `~/.npm/_npx/<hash>/`. If your `mcp.json`
@@ -98,7 +121,16 @@ in Cursor's MCP panel confirms you're current.
 | `table_stats`       | Per-table size and row statistics from `information_schema.TABLES`: approximate row count, data/index bytes, engine, collation, auto-increment. Optional `table` filter; sorted largest-first.                                                                                           |
 | `list_foreign_keys` | Foreign key relationships in the database, grouped per constraint (multi-column keys included), with update/delete rules. Pass `table` to get both directions: FKs on the table and FKs referencing it.                                                                                 |
 | `search_columns`    | Find columns by name across every table (case-insensitive substring, max 500 matches). Returns table, type, nullability, and key info.                                                                                                                                                   |
+| `sample_rows`       | Preview a few rows from a table (`SELECT * … LIMIT n`, default 10, max 1000) to see real data shape without hand-writing SQL. Read-only-safe.                                                                                                                                            |
 | `list_databases`    | Lists configured connections (host, database, port, read-only flag, ssl flag). Never includes passwords.                                                                                                                                                                                |
+| `list_schemas`      | `SHOW DATABASES` — the schemas visible to the connection's user. Use a returned name as the `database` argument to the schema tools to inspect another schema on the same server.                                                                                                        |
+| `server_info`       | Read-only diagnostics: server version, curated global variables, key status counters, and (by default) the current process list (`SHOW FULL PROCESSLIST`).                                                                                                                              |
+
+Every schema tool (`list_tables`, `describe_table`, `show_create_table`,
+`get_schema`, `table_stats`, `list_foreign_keys`, `search_columns`,
+`sample_rows`) accepts an optional `database` argument to inspect a schema
+other than the one the connection is attached to. Use `list_schemas` to
+discover the available names.
 
 All tools advertise [MCP tool annotations](https://modelcontextprotocol.io/docs/concepts/tools#tool-annotations)
 (`readOnlyHint`, `destructiveHint`, `idempotentHint`), so clients can relax
@@ -116,6 +148,10 @@ writes like `WITH x AS (...) DELETE FROM t`, `INTO OUTFILE`/`DUMPFILE`,
 control, is rejected before any SQL leaves the process. Detection is
 comment-, string-literal-, and backtick-identifier-aware, so neither
 `/* DELETE */` comments nor a column named `` `update` `` confuse it.
+MySQL *executable* comments (`/*! ... */`, `/*!50000 ... */`), whose
+contents the server actually runs, are inspected rather than ignored, and
+`--` is only treated as a comment when followed by whitespace — so
+`/*! DELETE FROM t */` and `SELECT 1--1;DELETE FROM t` are both rejected.
 
 Each tool accepts an optional `connection` argument. If omitted, the default
 from `defaults.connection` (or the literal `"default"`) is used. Tools that
@@ -149,6 +185,10 @@ an agent's context window:
   `defaults.maxResponseBytes`) caps the serialized size of returned rows.
   When exceeded, rows are truncated and the response includes
   `truncated: true`, the fetched row count, and a note.
+- `offset` paginates a bare `SELECT` / `WITH…SELECT` that has no explicit
+  `LIMIT`: the server appends `LIMIT n OFFSET m`. Combine with `limit` to
+  page through a large result set. Ignored when the query already has a
+  `LIMIT`.
 
 ### Session state
 
@@ -188,7 +228,8 @@ For each configured connection the server exposes a resource:
       "password": "secret",
       "database": "myapp",
       "readOnly": false,
-      "connectionLimit": 5
+      "connectionLimit": 5,
+      "queueLimit": 20
     },
     {
       "connectionName": "production",
@@ -219,7 +260,8 @@ For each configured connection the server exposes a resource:
 | `connections[].database`        | yes      | -            |                                                    |
 | `connections[].readOnly`        | no       | `false`      | When `true`, only read statements run. See [Read-only enforcement](#read-only-enforcement). |
 | `connections[].connectionLimit` | no       | `5`          | Max connections per pool.                          |
-| `connections[].queryTimeoutMs`  | no       | inherits `defaults.queryTimeoutMs` | Per-connection timeout override. |
+| `connections[].queueLimit`      | no       | `20`         | Max queued requests once the pool is saturated; `0` means unbounded. |
+| `connections[].queryTimeoutMs`  | no       | inherits `defaults.queryTimeoutMs` | Per-connection timeout override. Capped at 1 hour. |
 | `connections[].ssl`             | no       | unset        | `true` / `false` / `"Amazon RDS"` / mysql2 SSL object (`{ ca, cert, key, rejectUnauthorized, ... }`). |
 | `connections[].multipleStatements` | no    | `false`      | When `true`, allows multiple `;`-separated statements per query. Enables a class of SQL injection, so leave off unless you know you need it. |
 
@@ -237,10 +279,11 @@ The first source that exists wins:
 
 | Variable                | Required | Default      |
 | ----------------------- | -------- | ------------ |
-| `MYSQL_HOST`            | yes      | -            |
-| `MYSQL_USER`            | yes      | -            |
-| `MYSQL_PASSWORD`        | yes      | -            |
-| `MYSQL_DATABASE`        | yes      | -            |
+| `MYSQL_URL`             | no       | unset (`mysql://user:pass@host:port/db`; an alternative to the four vars below) |
+| `MYSQL_HOST`            | yes (if no URL) | -     |
+| `MYSQL_USER`            | yes (if no URL) | -     |
+| `MYSQL_PASSWORD`        | yes (if no URL) | -     |
+| `MYSQL_DATABASE`        | yes (if no URL) | -     |
 | `MYSQL_PORT`            | no       | `3306`       |
 | `MYSQL_CONNECTION_NAME` | no       | `default`    |
 | `MYSQL_READ_ONLY`       | no       | `false` (true when value is `true` or `1`) |

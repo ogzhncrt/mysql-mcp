@@ -7,7 +7,8 @@ import {
   resolveConnectionName,
 } from "../lib/connections.js";
 import type { ToolDefinition } from "../lib/context.js";
-import { assertValidIdentifier, escapeIdentifier } from "../lib/identifiers.js";
+import { qualifiedName, resolveOptionalDatabase } from "../lib/database.js";
+import { assertValidIdentifier } from "../lib/identifiers.js";
 
 export const describeTableTool: ToolDefinition = {
   name: "describe_table",
@@ -33,6 +34,12 @@ export const describeTableTool: ToolDefinition = {
               "Table name. 1-64 chars, no backticks or control characters. " +
               "Identifiers with dollar signs, hyphens, and unicode letters are OK.",
           },
+          database: {
+            type: "string",
+            description:
+              "Optional schema the table lives in. Defaults to the " +
+              "connection's own database.",
+          },
           connection: connectionEnum(ctx),
         },
         required: ["table"],
@@ -44,10 +51,11 @@ export const describeTableTool: ToolDefinition = {
   async execute(args, ctx) {
     const table = requireNonEmptyString(args.table, "table");
     assertValidIdentifier(table, "table");
+    const database = resolveOptionalDatabase(args.database);
 
     const connectionName = resolveConnectionName(ctx, args.connection);
     const pool = ctx.pools.getPool(connectionName);
-    const quoted = escapeIdentifier(table);
+    const quoted = qualifiedName(table, database);
 
     const [[columns], [indexes]] = await Promise.all([
       pool.query<RowDataPacket[]>(`DESCRIBE ${quoted}`),
@@ -56,6 +64,7 @@ export const describeTableTool: ToolDefinition = {
 
     return {
       table,
+      database: database ?? undefined,
       columns,
       indexes,
       connection: connectionName,

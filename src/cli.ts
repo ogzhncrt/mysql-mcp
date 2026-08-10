@@ -36,7 +36,9 @@ Subcommands:
                     Override with --output <path>.
 
 Environment (used only when no config file is found):
-  MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE  (required)
+  MYSQL_URL               mysql://user:password@host:port/database
+                          (an alternative to the four vars below)
+  MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE  (required if no URL)
   MYSQL_PORT              (optional, default 3306)
   MYSQL_CONNECTION_NAME   (optional, default "default")
   MYSQL_READ_ONLY         (optional, "true" or "1" enables read-only)

@@ -6,6 +6,8 @@ import {
   resolveConnectionName,
 } from "../lib/connections.js";
 import type { ToolDefinition } from "../lib/context.js";
+import { resolveOptionalDatabase } from "../lib/database.js";
+import { escapeIdentifier } from "../lib/identifiers.js";
 
 export const listTablesTool: ToolDefinition = {
   name: "list_tables",
@@ -25,6 +27,12 @@ export const listTablesTool: ToolDefinition = {
       inputSchema: {
         type: "object",
         properties: {
+          database: {
+            type: "string",
+            description:
+              "Optional schema to list. Defaults to the connection's own " +
+              "database.",
+          },
           connection: connectionEnum(ctx),
         },
         additionalProperties: false,
@@ -34,8 +42,12 @@ export const listTablesTool: ToolDefinition = {
 
   async execute(args, ctx) {
     const connectionName = resolveConnectionName(ctx, args.connection);
+    const database = resolveOptionalDatabase(args.database);
     const pool = ctx.pools.getPool(connectionName);
-    const [rows] = await pool.query<RowDataPacket[]>("SHOW TABLES");
+    const sql = database
+      ? `SHOW TABLES FROM ${escapeIdentifier(database)}`
+      : "SHOW TABLES";
+    const [rows] = await pool.query<RowDataPacket[]>(sql);
 
     const tables = rows.map((row) => {
       const value = Object.values(row)[0];
@@ -45,6 +57,7 @@ export const listTablesTool: ToolDefinition = {
     return {
       tables,
       connection: connectionName,
+      database: database ?? undefined,
       count: tables.length,
     };
   },

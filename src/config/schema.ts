@@ -45,6 +45,11 @@ export const ConnectionConfigSchema = z.object({
     .int("connectionLimit must be an integer")
     .min(1, "connectionLimit must be >= 1")
     .optional(),
+  queueLimit: z
+    .number()
+    .int("queueLimit must be an integer")
+    .min(0, "queueLimit must be >= 0")
+    .optional(),
   queryTimeoutMs: z
     .number()
     .int("queryTimeoutMs must be an integer")

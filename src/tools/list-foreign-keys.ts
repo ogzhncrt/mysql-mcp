@@ -6,6 +6,7 @@ import {
   resolveConnectionName,
 } from "../lib/connections.js";
 import type { ToolDefinition } from "../lib/context.js";
+import { resolveOptionalDatabase, schemaScope } from "../lib/database.js";
 
 const FK_SQL = `
 SELECT
@@ -62,6 +63,12 @@ export const listForeignKeysTool: ToolDefinition = {
               "Optional table name. When omitted, all foreign keys in the " +
               "database are returned.",
           },
+          database: {
+            type: "string",
+            description:
+              "Optional schema to inspect. Defaults to the connection's " +
+              "own database.",
+          },
           connection: connectionEnum(ctx),
         },
         additionalProperties: false,
@@ -72,20 +79,27 @@ export const listForeignKeysTool: ToolDefinition = {
   async execute(args, ctx) {
     const connectionName = resolveConnectionName(ctx, args.connection);
     const pool = ctx.pools.getPool(connectionName);
+    const database = resolveOptionalDatabase(args.database);
+    const scope = schemaScope(database);
 
     const table = args.table;
     if (table !== undefined && typeof table !== "string") {
       throw new Error('"table" must be a string when provided');
     }
 
+    const baseSql =
+      scope.expr === "DATABASE()"
+        ? FK_SQL
+        : FK_SQL.replace("DATABASE()", scope.expr);
     const sql = table
-      ? `${FK_SQL} AND (kcu.TABLE_NAME = ? OR kcu.REFERENCED_TABLE_NAME = ?)
+      ? `${baseSql} AND (kcu.TABLE_NAME = ? OR kcu.REFERENCED_TABLE_NAME = ?)
 ORDER BY kcu.TABLE_NAME, kcu.CONSTRAINT_NAME, kcu.ORDINAL_POSITION`
-      : `${FK_SQL}
+      : `${baseSql}
 ORDER BY kcu.TABLE_NAME, kcu.CONSTRAINT_NAME, kcu.ORDINAL_POSITION`;
+    const values = [...scope.values, ...(table ? [table, table] : [])];
 
-    const [rows] = table
-      ? await pool.query<RowDataPacket[]>({ sql, values: [table, table] })
+    const [rows] = values.length > 0
+      ? await pool.query<RowDataPacket[]>({ sql, values })
       : await pool.query<RowDataPacket[]>({ sql });
 
     const grouped = new Map<string, ForeignKey>();

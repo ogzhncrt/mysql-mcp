@@ -135,25 +135,15 @@ function filterPlaceholders(config: AppConfig): AppConfig {
 }
 
 function buildConfigFromEnv(env: NodeJS.ProcessEnv): AppConfig | null {
-  const host = env.MYSQL_HOST?.trim();
-  const user = env.MYSQL_USER?.trim();
-  const password = env.MYSQL_PASSWORD;
-  const database = env.MYSQL_DATABASE?.trim();
-
-  if (!host || !user || password == null || !database) return null;
-
-  const portRaw = env.MYSQL_PORT?.trim();
-  const port = portRaw ? Number(portRaw) : undefined;
-  if (port !== undefined && (!Number.isInteger(port) || port < 1 || port > 65535)) {
-    throw new ConfigError(
-      `MYSQL_PORT must be an integer between 1 and 65535 (got "${portRaw}")`,
-    );
-  }
+  const base = env.MYSQL_URL?.trim()
+    ? parseMysqlUrl(env.MYSQL_URL.trim())
+    : parseDiscreteEnv(env);
+  if (!base) return null;
 
   const connectionName =
     env.MYSQL_CONNECTION_NAME?.trim() || DEFAULT_CONNECTION_NAME;
   const readOnly = parseBoolEnv(env.MYSQL_READ_ONLY);
-  const ssl = parseSslEnv(env.MYSQL_SSL);
+  const ssl = parseSslEnv(env.MYSQL_SSL) ?? base.ssl;
 
   const queryTimeoutRaw = env.MYSQL_QUERY_TIMEOUT_MS?.trim();
   const queryTimeoutMs = queryTimeoutRaw ? Number(queryTimeoutRaw) : undefined;
@@ -171,17 +161,96 @@ function buildConfigFromEnv(env: NodeJS.ProcessEnv): AppConfig | null {
     connections: [
       {
         connectionName,
-        host,
-        ...(port !== undefined ? { port } : {}),
-        user,
-        password,
-        database,
+        host: base.host,
+        ...(base.port !== undefined ? { port: base.port } : {}),
+        user: base.user,
+        password: base.password,
+        database: base.database,
         readOnly,
         ...(queryTimeoutMs !== undefined ? { queryTimeoutMs } : {}),
         ...(ssl !== undefined ? { ssl } : {}),
       },
     ],
   };
+}
+
+interface EnvConnectionBase {
+  host: string;
+  port?: number;
+  user: string;
+  password: string;
+  database: string;
+  ssl?: SslConfig;
+}
+
+function parseDiscreteEnv(env: NodeJS.ProcessEnv): EnvConnectionBase | null {
+  const host = env.MYSQL_HOST?.trim();
+  const user = env.MYSQL_USER?.trim();
+  const password = env.MYSQL_PASSWORD;
+  const database = env.MYSQL_DATABASE?.trim();
+
+  if (!host || !user || password == null || !database) return null;
+
+  const portRaw = env.MYSQL_PORT?.trim();
+  const port = portRaw ? Number(portRaw) : undefined;
+  if (port !== undefined && (!Number.isInteger(port) || port < 1 || port > 65535)) {
+    throw new ConfigError(
+      `MYSQL_PORT must be an integer between 1 and 65535 (got "${portRaw}")`,
+    );
+  }
+
+  return { host, user, password, database, port };
+}
+
+/**
+ * Parses a `mysql://user:password@host:port/database` URL. User, password,
+ * and database are URL-decoded so they may contain reserved characters
+ * (e.g. an "@" or "/" in the password). A `?ssl=true|false|amazon-rds`
+ * query parameter is honored; MYSQL_SSL still overrides it when set.
+ */
+function parseMysqlUrl(raw: string): EnvConnectionBase {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new ConfigError(
+      `MYSQL_URL is not a valid URL. Expected mysql://user:password@host:port/database`,
+    );
+  }
+
+  if (url.protocol !== "mysql:" && url.protocol !== "mysqls:") {
+    throw new ConfigError(
+      `MYSQL_URL must use the mysql:// scheme (got "${url.protocol}//")`,
+    );
+  }
+
+  const host = url.hostname;
+  const user = decodeURIComponent(url.username);
+  const password = decodeURIComponent(url.password);
+  const database = decodeURIComponent(url.pathname.replace(/^\//, ""));
+
+  if (!host || !user || !database) {
+    throw new ConfigError(
+      `MYSQL_URL must include host, user, and database: ` +
+        `mysql://user:password@host:port/database`,
+    );
+  }
+
+  let port: number | undefined;
+  if (url.port) {
+    port = Number(url.port);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      throw new ConfigError(
+        `MYSQL_URL port must be between 1 and 65535 (got "${url.port}")`,
+      );
+    }
+  }
+
+  const sslParam = url.searchParams.get("ssl") ?? undefined;
+  const ssl =
+    url.protocol === "mysqls:" ? true : parseSslEnv(sslParam ?? undefined);
+
+  return { host, user, password, database, port, ssl };
 }
 
 function parseSslEnv(value: string | undefined): SslConfig | undefined {

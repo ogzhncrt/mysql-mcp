@@ -19,9 +19,12 @@ import { describeTableTool } from "./describe-table.js";
 import { showCreateTableTool } from "./show-create-table.js";
 import { getSchemaTool } from "./get-schema.js";
 import { listDatabasesTool } from "./list-databases.js";
+import { listSchemasTool } from "./list-schemas.js";
 import { tableStatsTool } from "./table-stats.js";
 import { listForeignKeysTool } from "./list-foreign-keys.js";
 import { searchColumnsTool } from "./search-columns.js";
+import { sampleRowsTool } from "./sample-rows.js";
+import { serverInfoTool } from "./server-info.js";
 
 export type { ToolContext, ToolDefinition } from "../lib/context.js";
 export type CallToolResponse = CallToolResult;
@@ -34,9 +37,12 @@ const TOOLS: ToolDefinition[] = [
   showCreateTableTool,
   getSchemaTool,
   listDatabasesTool,
+  listSchemasTool,
   tableStatsTool,
   listForeignKeysTool,
   searchColumnsTool,
+  sampleRowsTool,
+  serverInfoTool,
 ];
 
 export function createToolContext(config: AppConfig): ToolContext {

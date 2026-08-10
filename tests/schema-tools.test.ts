@@ -53,6 +53,19 @@ describe("table_stats", () => {
     expect(ctx.pools.pool.queries[0].sql).toContain("AND TABLE_NAME = ?");
     expect(ctx.pools.pool.queries[0].values).toEqual(["orders"]);
   });
+
+  it("scopes to another schema via a bound parameter when database is given", async () => {
+    const ctx = buildTestContext();
+    ctx.pools.pool.pushResponse([]);
+
+    await tableStatsTool.execute({ database: "other_db", table: "orders" }, ctx);
+
+    const query = ctx.pools.pool.queries[0];
+    expect(query.sql).toContain("TABLE_SCHEMA = ?");
+    expect(query.sql).not.toContain("DATABASE()");
+    // schema binding comes first, then the table filter
+    expect(query.values).toEqual(["other_db", "orders"]);
+  });
 });
 
 describe("list_foreign_keys", () => {
@@ -110,6 +123,20 @@ describe("list_foreign_keys", () => {
     );
     expect(query.values).toEqual(["users", "users"]);
   });
+
+  it("scopes to another schema, binding the database before the table", async () => {
+    const ctx = buildTestContext();
+    ctx.pools.pool.pushResponse([]);
+
+    await listForeignKeysTool.execute(
+      { database: "other_db", table: "users" },
+      ctx,
+    );
+
+    const query = ctx.pools.pool.queries[0];
+    expect(query.sql).toContain("kcu.TABLE_SCHEMA = ?");
+    expect(query.values).toEqual(["other_db", "users", "users"]);
+  });
 });
 
 describe("search_columns", () => {
@@ -162,5 +189,26 @@ describe("search_columns", () => {
     await expect(
       searchColumnsTool.execute({}, ctx),
     ).rejects.toThrow(/pattern/);
+  });
+
+  it("scopes to another schema, binding the database before the pattern", async () => {
+    const ctx = buildTestContext();
+    ctx.pools.pool.pushResponse([]);
+
+    await searchColumnsTool.execute(
+      { pattern: "email", database: "other_db" },
+      ctx,
+    );
+
+    const query = ctx.pools.pool.queries[0];
+    expect(query.sql).toContain("TABLE_SCHEMA = ?");
+    expect(query.values).toEqual(["other_db", "%email%"]);
+  });
+
+  it("rejects an invalid database identifier", async () => {
+    const ctx = buildTestContext();
+    await expect(
+      searchColumnsTool.execute({ pattern: "x", database: "a`b" }, ctx),
+    ).rejects.toThrow(/database/);
   });
 });

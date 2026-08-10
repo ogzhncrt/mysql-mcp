@@ -8,6 +8,10 @@ import {
   resolveConnectionName,
 } from "../lib/connections.js";
 import type { ToolDefinition } from "../lib/context.js";
+import {
+  resolveOptionalDatabase,
+  schemaScope,
+} from "../lib/database.js";
 import { capBySerializedSize } from "../lib/json.js";
 
 /**
@@ -109,6 +113,12 @@ export const getSchemaTool: ToolDefinition = {
               "lighter, relationship-only map on very large schemas.",
             default: true,
           },
+          database: {
+            type: "string",
+            description:
+              "Optional schema to inspect. Defaults to the connection's " +
+              "own database. Use to map another schema on the same server.",
+          },
           connection: connectionEnum(ctx),
           maxResponseBytes: {
             type: "number",
@@ -127,6 +137,7 @@ export const getSchemaTool: ToolDefinition = {
 
   async execute(args, ctx) {
     const tables = resolveTablesFilter(args.tables);
+    const database = resolveOptionalDatabase(args.database);
     const includeColumns = resolveBoolean(
       args.includeColumns,
       "includeColumns",
@@ -141,13 +152,19 @@ export const getSchemaTool: ToolDefinition = {
     const connectionName = resolveConnectionName(ctx, args.connection);
     const connection = ctx.pools.getConfig(connectionName);
     const pool = ctx.pools.getPool(connectionName);
+    const scope = schemaScope(database);
 
     const [tableRows, columnRows, fkRows] = await Promise.all([
-      query(pool, withFilter(TABLES_SQL, tables, "TABLE_NAME"), tables),
+      query(pool, withFilter(TABLES_SQL, scope, tables, "TABLE_NAME"), scope, tables),
       includeColumns
-        ? query(pool, withFilter(COLUMNS_SQL, tables, "TABLE_NAME"), tables)
+        ? query(pool, withFilter(COLUMNS_SQL, scope, tables, "TABLE_NAME"), scope, tables)
         : Promise.resolve([] as RowDataPacket[]),
-      query(pool, withFilter(FOREIGN_KEYS_SQL, tables, "kcu.TABLE_NAME"), tables),
+      query(
+        pool,
+        withFilter(FOREIGN_KEYS_SQL, scope, tables, "kcu.TABLE_NAME"),
+        scope,
+        tables,
+      ),
     ]);
 
     const built = buildSchema(tableRows, columnRows, fkRows, includeColumns);
@@ -155,7 +172,7 @@ export const getSchemaTool: ToolDefinition = {
 
     const response: Record<string, unknown> = {
       connection: connectionName,
-      database: connection.database,
+      database: database ?? connection.database,
       tableCount: built.length,
       tables: kept,
     };
@@ -181,6 +198,7 @@ export const getSchemaTool: ToolDefinition = {
  */
 function withFilter(
   baseSql: string,
+  scope: { expr: string; values: string[] },
   tables: string[] | null,
   column: string,
 ): string {
@@ -188,16 +206,22 @@ function withFilter(
     column === "kcu.TABLE_NAME"
       ? "\nORDER BY kcu.TABLE_NAME, kcu.CONSTRAINT_NAME, kcu.ORDINAL_POSITION"
       : "\nORDER BY TABLE_NAME, ORDINAL_POSITION";
+  const scoped =
+    scope.expr === "DATABASE()"
+      ? baseSql
+      : baseSql.replace("DATABASE()", scope.expr);
   const filter = tables ? `\n  AND ${column} IN (?)` : "";
-  return `${baseSql}${filter}${ordering}`;
+  return `${scoped}${filter}${ordering}`;
 }
 
 async function query(
   pool: Pool,
   sql: string,
+  scope: { expr: string; values: string[] },
   tables: string[] | null,
 ): Promise<RowDataPacket[]> {
-  const arg = tables ? { sql, values: [tables] } : { sql };
+  const values = [...scope.values, ...(tables ? [tables] : [])];
+  const arg = values.length > 0 ? { sql, values } : { sql };
   const [rows] = await pool.query<RowDataPacket[]>(arg);
   return rows;
 }

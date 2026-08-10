@@ -7,6 +7,7 @@ import {
   resolveConnectionName,
 } from "../lib/connections.js";
 import type { ToolDefinition } from "../lib/context.js";
+import { resolveOptionalDatabase, schemaScope } from "../lib/database.js";
 
 const MAX_MATCHES = 500;
 
@@ -54,6 +55,12 @@ export const searchColumnsTool: ToolDefinition = {
               "Substring to match against column names, e.g. \"email\". " +
               "Matched case-insensitively; % and _ are treated literally.",
           },
+          database: {
+            type: "string",
+            description:
+              "Optional schema to search. Defaults to the connection's " +
+              "own database.",
+          },
           connection: connectionEnum(ctx),
         },
         required: ["pattern"],
@@ -64,8 +71,10 @@ export const searchColumnsTool: ToolDefinition = {
 
   async execute(args, ctx) {
     const pattern = requireNonEmptyString(args.pattern, "pattern");
+    const database = resolveOptionalDatabase(args.database);
     const connectionName = resolveConnectionName(ctx, args.connection);
     const pool = ctx.pools.getPool(connectionName);
+    const scope = schemaScope(database);
 
     // Escape LIKE wildcards so the user's pattern is a literal substring.
     // Uses "!" as the ESCAPE character (declared in SEARCH_SQL) rather than
@@ -73,9 +82,14 @@ export const searchColumnsTool: ToolDefinition = {
     // NO_BACKSLASH_ESCAPES SQL mode and the driver's own backslash doubling.
     const escaped = pattern.replace(/([!%_])/g, "!$1");
 
+    const sql =
+      scope.expr === "DATABASE()"
+        ? SEARCH_SQL
+        : SEARCH_SQL.replace("DATABASE()", scope.expr);
+
     const [rows] = await pool.query<RowDataPacket[]>({
-      sql: SEARCH_SQL,
-      values: [`%${escaped}%`],
+      sql,
+      values: [...scope.values, `%${escaped}%`],
     });
 
     const columns = rows.map((row) => ({

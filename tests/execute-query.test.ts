@@ -117,6 +117,72 @@ describe("execute_query", () => {
     expect(ctx.pools.pool.queries[0].sql).not.toMatch(/LIMIT 100/);
   });
 
+  it("appends LIMIT ... OFFSET for pagination on a bare SELECT", async () => {
+    const ctx = buildTestContext();
+    ctx.pools.pool.pushResponse([]);
+
+    await executeQueryTool.execute(
+      { query: "SELECT * FROM users", limit: 20, offset: 40 },
+      ctx,
+    );
+
+    expect(ctx.pools.pool.queries[0].sql).toMatch(/\nLIMIT 20 OFFSET 40$/);
+  });
+
+  it("omits OFFSET when offset is 0 or absent", async () => {
+    const ctx = buildTestContext();
+    ctx.pools.pool.pushResponse([]);
+    ctx.pools.pool.pushResponse([]);
+
+    await executeQueryTool.execute(
+      { query: "SELECT * FROM users", offset: 0 },
+      ctx,
+    );
+    await executeQueryTool.execute({ query: "SELECT * FROM users" }, ctx);
+
+    expect(ctx.pools.pool.queries[0].sql).toMatch(/\nLIMIT 100$/);
+    expect(ctx.pools.pool.queries[1].sql).toMatch(/\nLIMIT 100$/);
+  });
+
+  it("labels a WITH...INSERT result as INSERT (regression: reported WITH)", async () => {
+    const ctx = buildTestContext();
+    ctx.pools.pool.pushResponse({ affectedRows: 3, insertId: 10 });
+
+    const result = (await executeQueryTool.execute(
+      {
+        query:
+          "WITH x AS (SELECT id FROM src) INSERT INTO dst (id) SELECT id FROM x",
+      },
+      ctx,
+    )) as Record<string, unknown>;
+
+    expect(result.queryType).toBe("INSERT");
+    expect(result.affectedRows).toBe(3);
+  });
+
+  it("labels a REPLACE result and reports rows replaced", async () => {
+    const ctx = buildTestContext();
+    ctx.pools.pool.pushResponse({ affectedRows: 2, insertId: 5 });
+
+    const result = (await executeQueryTool.execute(
+      { query: "REPLACE INTO users (id) VALUES (1)" },
+      ctx,
+    )) as Record<string, unknown>;
+
+    expect(result.queryType).toBe("REPLACE");
+    expect(result.message).toMatch(/replaced 2 row/);
+  });
+
+  it("rejects timeoutMs above the maximum", async () => {
+    const ctx = buildTestContext();
+    await expect(
+      executeQueryTool.execute(
+        { query: "SELECT 1", timeoutMs: 999_999_999 },
+        ctx,
+      ),
+    ).rejects.toThrow(/timeoutMs/);
+  });
+
   it("injects MAX_EXECUTION_TIME hint on SELECT", async () => {
     const ctx = buildTestContext({ defaultQueryTimeoutMs: 5000 });
     ctx.pools.pool.pushResponse([]);

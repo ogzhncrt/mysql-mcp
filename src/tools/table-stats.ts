@@ -6,6 +6,7 @@ import {
   resolveConnectionName,
 } from "../lib/connections.js";
 import type { ToolDefinition } from "../lib/context.js";
+import { resolveOptionalDatabase, schemaScope } from "../lib/database.js";
 
 const STATS_SQL = `
 SELECT
@@ -52,6 +53,12 @@ export const tableStatsTool: ToolDefinition = {
               "Optional table name. When omitted, stats for every table " +
               "in the database are returned, largest first.",
           },
+          database: {
+            type: "string",
+            description:
+              "Optional schema to inspect. Defaults to the connection's " +
+              "own database.",
+          },
           connection: connectionEnum(ctx),
         },
         additionalProperties: false,
@@ -62,18 +69,25 @@ export const tableStatsTool: ToolDefinition = {
   async execute(args, ctx) {
     const connectionName = resolveConnectionName(ctx, args.connection);
     const pool = ctx.pools.getPool(connectionName);
+    const database = resolveOptionalDatabase(args.database);
+    const scope = schemaScope(database);
 
     const table = args.table;
     if (table !== undefined && typeof table !== "string") {
       throw new Error('"table" must be a string when provided');
     }
 
+    const baseSql =
+      scope.expr === "DATABASE()"
+        ? STATS_SQL
+        : STATS_SQL.replace("DATABASE()", scope.expr);
     const sql = table
-      ? `${STATS_SQL} AND TABLE_NAME = ? ORDER BY TABLE_NAME`
-      : `${STATS_SQL} ORDER BY DATA_LENGTH + INDEX_LENGTH DESC`;
+      ? `${baseSql} AND TABLE_NAME = ? ORDER BY TABLE_NAME`
+      : `${baseSql} ORDER BY DATA_LENGTH + INDEX_LENGTH DESC`;
+    const values = [...scope.values, ...(table ? [table] : [])];
 
-    const [rows] = table
-      ? await pool.query<RowDataPacket[]>({ sql, values: [table] })
+    const [rows] = values.length > 0
+      ? await pool.query<RowDataPacket[]>({ sql, values })
       : await pool.query<RowDataPacket[]>({ sql });
 
     const tables = rows.map((row) => ({

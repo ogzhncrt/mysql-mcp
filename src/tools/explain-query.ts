@@ -1,5 +1,6 @@
 import type { RowDataPacket } from "mysql2";
 
+import { MAX_QUERY_TIMEOUT_MS } from "../config/types.js";
 import {
   splitStatements,
   stripCommentsAndStrings,
@@ -63,9 +64,10 @@ export const explainQueryTool: ToolDefinition = {
           connection: connectionEnum(ctx),
           timeoutMs: {
             type: "number",
-            description: `Per-query timeout in milliseconds. Default ${ctx.defaultQueryTimeoutMs}.`,
+            description: `Per-query timeout in milliseconds. Default ${ctx.defaultQueryTimeoutMs}, max ${MAX_QUERY_TIMEOUT_MS}.`,
             default: ctx.defaultQueryTimeoutMs,
             minimum: 1,
+            maximum: MAX_QUERY_TIMEOUT_MS,
           },
         },
         required: ["query"],
@@ -85,7 +87,7 @@ export const explainQueryTool: ToolDefinition = {
     const timeoutMs = resolvePositiveInt(
       args.timeoutMs,
       connection.queryTimeoutMs ?? ctx.defaultQueryTimeoutMs,
-      { field: "timeoutMs" },
+      { field: "timeoutMs", max: MAX_QUERY_TIMEOUT_MS },
     );
 
     const stripped = trimTrailingNoise(query);

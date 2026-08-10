@@ -1,12 +1,12 @@
 import type { FieldPacket, ResultSetHeader, RowDataPacket } from "mysql2";
 
-import { MAX_QUERY_LIMIT } from "../config/types.js";
+import { MAX_QUERY_LIMIT, MAX_QUERY_TIMEOUT_MS } from "../config/types.js";
 import {
   assertCanExecute,
   containsTopLevelLimit,
   findOuterSelectEnd,
   isMultiStatement,
-  stripCommentsAndStrings,
+  mainStatementKeyword,
   trimTrailingNoise,
 } from "../db/query-guard.js";
 import {
@@ -77,14 +77,24 @@ export const executeQueryTool: ToolDefinition = {
             minimum: 1,
             maximum: MAX_QUERY_LIMIT,
           },
+          offset: {
+            type: "number",
+            description:
+              "Row offset for pagination, applied only when this server " +
+              "adds the LIMIT (bare SELECT / WITH...SELECT without an " +
+              "explicit LIMIT). Combine with `limit` to page through a large " +
+              "result set. Ignored when the query already has a LIMIT.",
+            minimum: 0,
+          },
           timeoutMs: {
             type: "number",
             description:
-              `Per-query timeout in milliseconds. Default ${ctx.defaultQueryTimeoutMs}. ` +
+              `Per-query timeout in milliseconds. Default ${ctx.defaultQueryTimeoutMs}, max ${MAX_QUERY_TIMEOUT_MS}. ` +
               `For SELECT, cancels the query server-side via MAX_EXECUTION_TIME. ` +
               `For non-SELECT, only closes the client socket (server may keep running).`,
             default: ctx.defaultQueryTimeoutMs,
             minimum: 1,
+            maximum: MAX_QUERY_TIMEOUT_MS,
           },
           format: {
             type: "string",
@@ -120,10 +130,14 @@ export const executeQueryTool: ToolDefinition = {
       field: "limit",
       max: MAX_QUERY_LIMIT,
     });
+    const offset =
+      args.offset === undefined || args.offset === null
+        ? null
+        : resolvePositiveInt(args.offset, 0, { field: "offset", min: 0 });
     const timeoutMs = resolvePositiveInt(
       args.timeoutMs,
       connection.queryTimeoutMs ?? ctx.defaultQueryTimeoutMs,
-      { field: "timeoutMs" },
+      { field: "timeoutMs", max: MAX_QUERY_TIMEOUT_MS },
     );
     const format = resolveFormat(args.format);
     const maxResponseBytes = resolvePositiveInt(
@@ -134,7 +148,7 @@ export const executeQueryTool: ToolDefinition = {
 
     assertCanExecute(connection, query);
 
-    const limited = maybeAppendLimit(query, limit);
+    const limited = maybeAppendLimit(query, limit, offset);
     const finalQuery = injectMaxExecutionTime(limited, timeoutMs);
     const pool = ctx.pools.getPool(connectionName);
 
@@ -168,11 +182,17 @@ function resolveFormat(value: unknown): RowFormat {
  * bug). Multi-statement batches are skipped: a trailing LIMIT would bind
  * only to the last statement and leave earlier SELECTs uncapped.
  */
-function maybeAppendLimit(query: string, limit: number): string {
+function maybeAppendLimit(
+  query: string,
+  limit: number,
+  offset: number | null,
+): string {
   if (findOuterSelectEnd(query) === null) return query;
   if (isMultiStatement(query)) return query;
   if (containsTopLevelLimit(query)) return query;
-  return `${trimTrailingNoise(query)}\nLIMIT ${limit}`;
+  const clause =
+    offset && offset > 0 ? `LIMIT ${limit} OFFSET ${offset}` : `LIMIT ${limit}`;
+  return `${trimTrailingNoise(query)}\n${clause}`;
 }
 
 /**
@@ -220,13 +240,14 @@ function buildResponse(input: BuildResponseInput): Record<string, unknown> {
 
   const header = result as ResultSetHeader;
 
-  if (queryType === "INSERT") {
+  if (queryType === "INSERT" || queryType === "REPLACE") {
+    const verb = queryType === "REPLACE" ? "replaced" : "inserted";
     return {
       connection,
       queryType,
       affectedRows: header.affectedRows ?? 0,
       insertId: header.insertId != null ? String(header.insertId) : null,
-      message: `Successfully inserted ${header.affectedRows ?? 0} row(s)`,
+      message: `Successfully ${verb} ${header.affectedRows ?? 0} row(s)`,
     };
   }
 
@@ -313,7 +334,5 @@ function resolveColumns(
 }
 
 function detectQueryType(sql: string): string {
-  const masked = stripCommentsAndStrings(sql);
-  const firstWord = masked.trim().split(/\s+/)[0]?.toUpperCase();
-  return firstWord || "OTHER";
+  return mainStatementKeyword(sql) ?? "OTHER";
 }

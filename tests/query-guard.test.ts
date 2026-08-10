@@ -9,6 +9,7 @@ import {
   isMultiStatement,
   isSelectQuery,
   isWriteQuery,
+  mainStatementKeyword,
   stripCommentsAndStrings,
   trimTrailingNoise,
 } from "../src/db/query-guard.js";
@@ -150,6 +151,27 @@ describe("isWriteQuery", () => {
     expect(isWriteQuery("SELECT 1 /* DROP TABLE x */ FROM dual")).toBe(false);
     expect(isWriteQuery("SELECT 1\n# UPDATE x SET y=1")).toBe(false);
   });
+
+  it("catches writes hidden in MySQL executable comments (the server runs them)", () => {
+    // /*! ... */ and /*!NNNNN ... */ are executed by MySQL, so the guard
+    // must inspect their contents rather than treating them as comments.
+    expect(isWriteQuery("/*! DELETE FROM users */")).toBe(true);
+    expect(isWriteQuery("/*!50000 DROP TABLE t */")).toBe(true);
+    expect(isWriteQuery("/*!40001 UPDATE t SET a=1 */")).toBe(true);
+    expect(
+      isWriteQuery("SELECT 1 /*!50000 INTO OUTFILE '/tmp/x' */"),
+    ).toBe(true);
+    // A read hidden in an executable comment stays allowed.
+    expect(isWriteQuery("/*! SELECT 1 */")).toBe(false);
+  });
+
+  it('treats "--" as a comment only when followed by whitespace/EOL', () => {
+    // "1--1" is arithmetic in MySQL, not a comment, so the trailing DELETE
+    // must remain visible to the guard.
+    expect(isWriteQuery("SELECT 1--1;DELETE FROM t")).toBe(true);
+    // Normal "-- comment" (space after dashes) still masks correctly.
+    expect(isWriteQuery("SELECT 1 -- DELETE FROM t\nFROM dual")).toBe(false);
+  });
 });
 
 describe("stripCommentsAndStrings", () => {
@@ -180,6 +202,31 @@ describe("stripCommentsAndStrings", () => {
   it("does not treat comment markers inside strings as comments", () => {
     const masked = stripCommentsAndStrings("SELECT '-- not a comment', 1");
     expect(masked).toMatch(/, 1\s*$/);
+  });
+});
+
+describe("mainStatementKeyword", () => {
+  it("returns the leading keyword of a plain statement", () => {
+    expect(mainStatementKeyword("SELECT 1")).toBe("SELECT");
+    expect(mainStatementKeyword("  insert into t values (1)")).toBe("INSERT");
+    expect(mainStatementKeyword("REPLACE INTO t VALUES (1)")).toBe("REPLACE");
+  });
+
+  it("resolves past a WITH ... CTE chain to the main verb", () => {
+    expect(
+      mainStatementKeyword("WITH x AS (SELECT 1) SELECT * FROM x"),
+    ).toBe("SELECT");
+    expect(
+      mainStatementKeyword("WITH x AS (SELECT 1) INSERT INTO logs SELECT * FROM x"),
+    ).toBe("INSERT");
+    expect(
+      mainStatementKeyword("WITH RECURSIVE t AS (SELECT 1) UPDATE u SET a=1"),
+    ).toBe("UPDATE");
+  });
+
+  it("returns null when there is no leading keyword", () => {
+    expect(mainStatementKeyword("   ")).toBeNull();
+    expect(mainStatementKeyword("/* just a comment */")).toBeNull();
   });
 });
 

@@ -65,6 +65,20 @@ export function stripCommentsAndStrings(sql: string): string {
     const c = sql[i];
 
     if (c === "/" && sql[i + 1] === "*") {
+      // MySQL executable comments (`/*! ... */` and versioned
+      // `/*!50000 ... */`) are executed by the server, so their contents
+      // must stay visible to the read-only guard. Blank only the opening
+      // marker and any version digits; the inner SQL is then processed
+      // normally (strings masked, keywords detectable). The trailing "*/"
+      // is left as-is, which is harmless: it has no word characters, so it
+      // can neither form nor hide a keyword.
+      if (sql[i + 2] === "!") {
+        let j = i + 3;
+        while (j < len && sql[j] >= "0" && sql[j] <= "9") j++;
+        for (let k = i; k < j; k++) out[k] = " ";
+        i = j;
+        continue;
+      }
       const close = sql.indexOf("*/", i + 2);
       const end = close === -1 ? len : close + 2;
       for (let k = i; k < end; k++) out[k] = " ";
@@ -72,7 +86,16 @@ export function stripCommentsAndStrings(sql: string): string {
       continue;
     }
 
-    if ((c === "-" && sql[i + 1] === "-") || c === "#") {
+    // MySQL only starts a "--" comment when the dashes are followed by
+    // whitespace/control or end-of-input; "1--1" is arithmetic, not a
+    // comment. Blanking "--" unconditionally would hide a statement the
+    // server actually runs (e.g. `SELECT 1--1;DELETE FROM t` with
+    // multipleStatements enabled).
+    const isDashComment =
+      c === "-" &&
+      sql[i + 1] === "-" &&
+      (i + 2 >= len || /\s/.test(sql[i + 2]));
+    if (isDashComment || c === "#") {
       const nl = sql.indexOf("\n", i);
       const end = nl === -1 ? len : nl; // keep the newline itself
       for (let k = i; k < end; k++) out[k] = " ";
@@ -290,6 +313,43 @@ export function findOuterSelectEnd(sql: string): number | null {
 
   const main = readWord(masked, i);
   return main && main.word === "SELECT" ? main.end : null;
+}
+
+/**
+ * Leading keyword of the *main* statement, resolving past a leading
+ * `WITH ... ` CTE chain so `WITH x AS (...) INSERT ...` reports INSERT
+ * rather than WITH. Runs on masked SQL; returns null when no keyword is
+ * found. Used for labeling result messages, not for the read-only guard.
+ */
+export function mainStatementKeyword(sql: string): string | null {
+  const masked = stripCommentsAndStrings(sql);
+  let i = skipWhitespace(masked, 0);
+
+  const first = readWord(masked, i);
+  if (!first) return null;
+  if (first.word !== "WITH") return first.word;
+
+  i = skipWhitespace(masked, first.end);
+  const recursive = readWord(masked, i);
+  if (recursive && recursive.word === "RECURSIVE") {
+    i = skipWhitespace(masked, recursive.end);
+  }
+
+  for (;;) {
+    const open = findCteSubqueryParen(masked, i);
+    if (open === -1) return null;
+    const close = matchParen(masked, open);
+    if (close === -1) return null;
+    i = skipWhitespace(masked, close);
+    if (masked[i] === ",") {
+      i = skipWhitespace(masked, i + 1);
+      continue;
+    }
+    break;
+  }
+
+  const main = readWord(masked, i);
+  return main ? main.word : null;
 }
 
 const IDENT_CHAR = /[A-Za-z0-9_$]/;
